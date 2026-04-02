@@ -1,0 +1,86 @@
+exclude: ^\.venv/
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: debug-statements
+      - id: name-tests-test
+        exclude: ^tests/test_config\.py$
+      - id: requirements-txt-fixer
+
+  - repo: https://github.com/asottile/setup-cfg-fmt
+    rev: v3.2.0
+    hooks:
+      - id: setup-cfg-fmt
+
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.21.2
+    hooks:
+      - id: pyupgrade
+        args: [--py39-plus]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.5
+    hooks:
+      # Run the linter and fix issues
+      - id: ruff
+        args:
+          - --fix
+          - --exit-non-zero-on-fix
+          - --ignore
+          - E722  # Ignore bare 'except'
+        exclude: ".*poetry.lock|.*_static"
+      # Run the formatter
+      - id: ruff-format
+
+  - repo: https://github.com/adamchainz/blacken-docs
+    rev: 1.20.0
+    hooks:
+      - id: blacken-docs
+        name: black-docs-text
+        alias: black
+        types_or: [rst, markdown, tex]
+        additional_dependencies: [black==23.10.1]
+        # Using PEP 8's line length in docs prevents excess left/right scrolling
+        args: [--line-length=160]
+
+  - repo: https://github.com/srstevenson/nb-clean
+    rev: 4.0.1
+    hooks:
+      - id: nb-clean
+        args: [--preserve-cell-outputs, --remove-empty-cells]
+  - repo: https://github.com/pappasam/toml-sort
+    rev: v0.24.3
+    hooks:
+      - id: toml-sort-fix
+        exclude: ".*poetry.lock|.*_static"
+
+  - repo: https://github.com/nbQA-dev/nbQA
+    rev: 1.9.1
+    hooks:
+      - id: nbqa-ruff
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.48.0 # Use the latest stable version
+    hooks:
+      - id: markdownlint
+        args:
+        - --fix
+        - --disable
+        - MD013
+        - MD025
+        - MD001
+        - MD024
+        - MD041
+        - MD040
+
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0 # Use the latest stable version
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline', '--exclude-secrets', '(?i)dummy|placeholder']
+        exclude: package.lock.json

@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "es2022",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "sourceMap": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "useDefineForClassFields": false,
+    "outDir": "dist",
+    "rootDir": "."
+  },
+  "include": ["src"]
+}

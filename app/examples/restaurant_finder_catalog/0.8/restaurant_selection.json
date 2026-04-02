@@ -1,0 +1,287 @@
+[
+  {
+    "beginRendering": {
+      "surfaceId": "restaurant-selection-surface",
+      "root": "root-column"
+    }
+  },
+  {
+    "surfaceUpdate": {
+      "surfaceId": "restaurant-selection-surface",
+      "components": [
+        {
+          "id": "root-column",
+          "component": {
+            "Column": {
+              "children": {
+                "explicitList": [
+                  "title-heading",
+                  "item-list"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "title-heading",
+          "component": {
+            "Text": {
+              "usageHint": "h2",
+              "text": {
+                "path": "/title"
+              }
+            }
+          }
+        },
+        {
+          "id": "item-list",
+          "component": {
+            "List": {
+              "direction": "vertical",
+              "children": {
+                "template": {
+                  "componentId": "item-card-template",
+                  "dataBinding": "/items"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "item-card-template",
+          "component": {
+            "Card": {
+              "child": "card-layout"
+            }
+          }
+        },
+        {
+          "id": "card-layout",
+          "component": {
+            "Column": {
+              "children": {
+                "explicitList": [
+                  "template-name",
+                  "template-rating",
+                  "template-detail",
+                  "template-address",
+                  "template-link",
+                  "template-button-row"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "template-name",
+          "component": {
+            "Text": {
+              "usageHint": "h3",
+              "text": {
+                "path": "/name"
+              }
+            }
+          }
+        },
+        {
+          "id": "template-rating",
+          "component": {
+            "Text": {
+              "text": {
+                "path": "/rating"
+              }
+            }
+          }
+        },
+        {
+          "id": "template-detail",
+          "component": {
+            "Text": {
+              "text": {
+                "path": "/detail"
+              }
+            }
+          }
+        },
+        {
+          "id": "template-address",
+          "component": {
+            "Text": {
+              "usageHint": "caption",
+              "text": {
+                "path": "/address"
+              }
+            }
+          }
+        },
+        {
+          "id": "template-link",
+          "component": {
+            "Text": {
+              "text": {
+                "path": "/infoLink"
+              }
+            }
+          }
+        },
+        {
+          "id": "template-button-row",
+          "component": {
+            "Row": {
+              "children": {
+                "explicitList": [
+                  "show-details-button",
+                  "show-map-button"
+                ]
+              },
+              "distribution": "end"
+            }
+          }
+        },
+        {
+          "id": "show-details-button",
+          "component": {
+            "Button": {
+              "child": "show-details-text",
+              "primary": true,
+              "action": {
+                "name": "selectRestaurants",
+                "context": [
+                  {
+                    "key": "restaurantName",
+                    "value": {
+                      "path": "/name"
+                    }
+                  },
+                  {
+                    "key": "address",
+                    "value": {
+                      "path": "/address"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "show-details-text",
+          "component": {
+            "Text": {
+              "text": {
+                "literalString": "Show Details"
+              }
+            }
+          }
+        },
+        {
+          "id": "show-map-button",
+          "component": {
+            "Button": {
+              "child": "show-map-text",
+              "action": {
+                "name": "showOnMap",
+                "context": [
+                  {
+                    "key": "restaurantName",
+                    "value": {
+                      "path": "/name"
+                    }
+                  },
+                  {
+                    "key": "address",
+                    "value": {
+                      "path": "/address"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "show-map-text",
+          "component": {
+            "Text": {
+              "text": {
+                "literalString": "Show on Map"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "dataModelUpdate": {
+      "surfaceId": "restaurant-selection-surface",
+      "path": "/",
+      "contents": [
+        {
+          "key": "title",
+          "valueString": "Restaurants Near You"
+        },
+        {
+          "key": "items[0].name",
+          "valueString": "Restaurant A"
+        },
+        {
+          "key": "items[0].rating",
+          "valueString": "★★★★☆"
+        },
+        {
+          "key": "items[0].detail",
+          "valueString": "Known for wood-fired pizza."
+        },
+        {
+          "key": "items[0].address",
+          "valueString": "123 Main St, City, ST 00000"
+        },
+        {
+          "key": "items[0].infoLink",
+          "valueString": "[More Info](https://maps.google.com/?cid=111)"
+        },
+        {
+          "key": "items[1].name",
+          "valueString": "Restaurant B"
+        },
+        {
+          "key": "items[1].rating",
+          "valueString": "★★★★★"
+        },
+        {
+          "key": "items[1].detail",
+          "valueString": "Fresh seafood and sushi."
+        },
+        {
+          "key": "items[1].address",
+          "valueString": "456 Oak Ave, City, ST 00000"
+        },
+        {
+          "key": "items[1].infoLink",
+          "valueString": "[More Info](https://maps.google.com/?cid=222)"
+        },
+        {
+          "key": "items[2].name",
+          "valueString": "Restaurant C"
+        },
+        {
+          "key": "items[2].rating",
+          "valueString": "★★★☆☆"
+        },
+        {
+          "key": "items[2].detail",
+          "valueString": "Authentic Mexican cuisine."
+        },
+        {
+          "key": "items[2].address",
+          "valueString": "789 Elm Blvd, City, ST 00000"
+        },
+        {
+          "key": "items[2].infoLink",
+          "valueString": "[More Info](https://maps.google.com/?cid=333)"
+        }
+      ]
+    }
+  }
+]

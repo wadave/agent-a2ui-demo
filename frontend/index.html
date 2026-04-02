@@ -1,0 +1,133 @@
+<!doctype html>
+<!--
+  Copyright 2025 Google LLC
+  SPDX-License-Identifier: Apache-2.0
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Restaurant Finder</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap"
+      rel="stylesheet"
+    />
+    <!-- Material Symbols -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      /* CSS custom properties for the design system */
+      :root {
+        /* Neutral palette */
+        --n-0: #000000;
+        --n-10: #1a1c1e;
+        --n-20: #2f3133;
+        --n-30: #454749;
+        --n-40: #5d5e61;
+        --n-50: #76777a;
+        --n-60: #909194;
+        --n-70: #aaabae;
+        --n-80: #c6c6c9;
+        --n-90: #e2e2e5;
+        --n-95: #f0f0f3;
+        --n-99: #fdfcff;
+        --n-100: #ffffff;
+
+        /* Primary palette */
+        --p-10: #001a41;
+        --p-20: #002d6d;
+        --p-30: #00419c;
+        --p-40: #1a5cc0;
+        --p-50: #3c76da;
+        --p-60: #5b91f5;
+        --p-70: #89b4ff;
+        --p-80: #b0cbff;
+        --p-90: #d8e2ff;
+        --p-95: #ecf0ff;
+        --p-99: #fdfbff;
+
+        /* Secondary */
+        --s-30: #3c4858;
+        --s-40: #546070;
+        --s-60: #8b97a8;
+        --s-90: #dae2f2;
+
+        /* Tertiary */
+        --t-30: #563c58;
+        --t-40: #6f5370;
+        --t-60: #a88ba9;
+        --t-90: #fbd7fb;
+
+        /* Error */
+        --e-40: #ba1a1a;
+        --e-80: #ffb4ab;
+        --e-95: #fceeee;
+
+        /* Grid spacing */
+        --bb-grid-size: 4px;
+        --bb-grid-size-2: 8px;
+        --bb-grid-size-3: 12px;
+        --bb-grid-size-4: 16px;
+        --bb-grid-size-5: 20px;
+        --bb-grid-size-6: 24px;
+        --bb-grid-size-8: 32px;
+        --bb-grid-size-10: 40px;
+        --bb-grid-size-12: 48px;
+        --bb-grid-size-16: 64px;
+
+        --font-family: "Outfit", sans-serif;
+
+        color-scheme: light dark;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: var(--font-family);
+        height: 100svh;
+        overflow: hidden;
+        background: light-dark(#ffffff, #1e1e1e);
+        container-type: inline-size;
+      }
+
+      body.light {
+        color-scheme: light;
+      }
+
+      body.dark {
+        color-scheme: dark;
+      }
+
+      .g-icon {
+        font-family: "Material Symbols Outlined";
+        font-weight: normal;
+        font-style: normal;
+        font-size: 24px;
+        line-height: 1;
+        letter-spacing: normal;
+        text-transform: none;
+        display: inline-block;
+        white-space: nowrap;
+        word-wrap: normal;
+        direction: ltr;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .g-icon.filled-heavy {
+        font-variation-settings: "FILL" 1, "wght" 500;
+      }
+    </style>
+
+    <script type="module" src="/src/app.ts"></script>
+  </head>
+  <body>
+    <a2ui-app-shell></a2ui-app-shell>
+  </body>
+</html>

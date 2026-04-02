@@ -1,0 +1,282 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Restaurant Finder agent using A2UI SDK for GE UI integration."""
+
+import logging
+import os
+from typing import ClassVar
+
+from a2a.types import AgentCapabilities, AgentCard, AgentSkill
+from a2ui.a2a import get_a2ui_agent_extension
+from a2ui.adk.a2a_extension.send_a2ui_to_client_toolset import (
+    SendA2uiToClientToolset,
+)
+from a2ui.basic_catalog.provider import BasicCatalog
+from a2ui.core.schema.common_modifiers import remove_strict_validation
+from a2ui.core.schema.constants import VERSION_0_8
+from a2ui.core.schema.manager import A2uiSchemaManager, CatalogConfig
+from google.adk.agents.llm_agent import LlmAgent
+from google.adk.agents.readonly_context import ReadonlyContext
+from google.adk.artifacts import InMemoryArtifactService
+from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from google.adk.tools import AgentTool
+
+from app.config import DEFAULT_MODEL, get_google_maps_api_key
+from app.session_keys import A2UI_CATALOG_KEY, A2UI_ENABLED_KEY, A2UI_EXAMPLES_KEY
+from app.sub_agents import maps_agent
+from app.tools import find_restaurants, get_directions
+
+logger = logging.getLogger(__name__)
+
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+CATALOG_DEFINITION_JSON = os.path.join(
+    _APP_DIR, "catalog_schemas", "0.8", "restaurant_finder_catalog_definition.json"
+)
+
+ROLE_DESCRIPTION = """
+You are a restaurant finder agent. Your goal is to help users find and explore restaurants by using the available tools.
+You MUST use the `send_a2ui_json_to_client` tool with the `a2ui_json` argument to send A2UI JSON payloads to the client for rendering rich UI.
+NEVER prefix tool calls with `default_api.` or wrap them in `print()`. Call the tool exactly as `send_a2ui_json_to_client(a2ui_json=...)`.
+"""
+
+WORKFLOW_DESCRIPTION = """
+Your task is to analyze the user's request, fetch the necessary data, select the correct template, and send the A2UI JSON payload.
+
+1.  **Analyze the Request:** Determine the user's intent.
+    * "What restaurants are near me?" -> **Intent:** Restaurant List.
+    * "Show it on the map" -> **Intent:** Map View.
+    * "How do I get there?" -> **Intent:** Directions.
+    * "Tell me about Han Dynasty" -> **Intent:** Restaurant Details (text only).
+
+2.  **Fetch Data:** Select and use the appropriate tool.
+    * Use **`find_restaurants`** for searching restaurants by query. Always pass the complete location context. Do NOT use `maps_agent` for restaurant searches.
+    * Use **`get_directions`** for driving directions between two locations.
+    * For **Map View**: you do NOT need to call any tool. Use the restaurant's address from the conversation context or cached data to estimate lat/lng coordinates, then render the GoogleMap component directly.
+    * **Quality Check**: After calling `find_restaurants`, inspect the JSON output. Every restaurant MUST have a valid rating (stars) and a non-empty description. If any restaurant only has an address, do NOT display it. Instead, call `find_restaurants` again to find alternative restaurants that have complete details.
+
+3.  **Select Example:** Based on the intent, choose the correct example.
+    * **Restaurant List** -> Use `---BEGIN RESTAURANT_SELECTION EXAMPLE---`.
+    * **Map View** -> Use `---BEGIN MAP EXAMPLE---`. You MUST use the `send_a2ui_json_to_client` tool with a GoogleMap component. Never respond with just a text link for map requests.
+    * **Directions** -> Use `---BEGIN DIRECTIONS EXAMPLE---` with a WebFrameUrl component showing the route.
+    * **Restaurant Details** -> Respond with text only (no A2UI JSON).
+
+4.  **Construct the JSON Payload:**
+    * Use the chosen example as the base value for the `a2ui_json` argument.
+    * **Generate a new `surfaceId`** for each request.
+    * **Update the title** and data to reflect the actual query and tool results.
+    * For restaurant lists: populate `dataModelUpdate.contents` with restaurant data from `find_restaurants`.
+    * For maps and directions: use the `WebFrameUrl` component with the URL format described in the **Key Components & Examples** section below.
+    * If you get an error in the tool response, apologize and ask the user to try again.
+
+5.  **Call the Tool:** Call `send_a2ui_json_to_client` with the fully constructed `a2ui_json` payload. The `a2ui_json` argument MUST be a single compact JSON string with NO newlines and NO indentation. Do NOT pass a list or object directly. Stringify it first. do NOT use `default_api.` or wrap in `print()`.
+
+
+**IMPORTANT RULES:**
+- When the user asks for restaurant details, respond with **text only** in Markdown format. Do NOT call the A2UI tool.
+- For found restaurants (e.g. from buttons like 'Show on map'), use `send_a2ui_json_to_client` directly. Do NOT use `maps_agent` to search for them again. Use the name and address you already have.
+- When the user asks for directions, call `get_directions` to resolve addresses, then use `send_a2ui_json_to_client` with a WebFrameUrl showing the route. Also include a Text component with a clickable link: "[View full directions on Google Maps](directions_url)".
+- For restaurant lists, map views, and directions, you MUST use the A2UI tool.
+- **Use Conversation History**: If the user refers to a location or restaurant mentioned previously (like "Urban Plates"), you MUST check the conversation history for its address. Do NOT ask the user for the address or search for it if it was already provided in the chat.
+- **Resolve Abbreviations**: Expand common abbreviations like "PLV" or "Plv" to "Playa Vista" when searching or getting directions to ensure robust queries.
+"""
+
+UI_DESCRIPTION = """
+**Core Objective:** Provide a dynamic restaurant finder dashboard by constructing UI surfaces.
+
+**Key Components & Examples:**
+
+1.  **Restaurant List:** Used when users ask to find/browse restaurants.
+    * **Template:** Use the JSON from `---BEGIN RESTAURANT_SELECTION EXAMPLE---`.
+    * Populate the `dataModelUpdate` with real restaurant data from the `find_restaurants` tool.
+    * Each restaurant item should have: name, rating (★ characters), detail, address, infoLink.
+
+2.  **Map View:** Used when users ask to see a location on a map.
+    * **Template:** Use the JSON from `---BEGIN MAP EXAMPLE---`.
+    * Use the `WebFrameUrl` component with a Google Maps embed URL.
+    * URL format: `https://www.google.com/maps/embed/v1/place?key={MAPS_API_KEY}&q=URL_ENCODED_NAME_AND_ADDRESS`
+    * The URL must be a `literalString`.
+    * Always call `send_a2ui_json_to_client` with a WebFrameUrl component. NEVER respond with just a text link.
+
+3.  **Directions:** Used when users ask for routes or directions between two locations.
+    * **Template:** Use the JSON from `---BEGIN DIRECTIONS EXAMPLE---`.
+    * Call `get_directions` first to resolve origin and destination addresses.
+    * Use the `WebFrameUrl` component with a Google Maps Embed API directions URL.
+    * URL format: `https://www.google.com/maps/embed/v1/directions?key={MAPS_API_KEY}&origin=URL_ENCODED_ORIGIN&destination=URL_ENCODED_DESTINATION`
+    * The URL must be a `literalString`. Replace the origin and destination with URL-encoded addresses from the `get_directions` result.
+    * Also include a Text component with a clickable link to the full directions.
+
+You will also use layout components like `Column`, `Row`, `Card`, `List`, `Text`, and `Button`.
+The `WebFrameUrl` component embeds an iframe for displaying maps and other web content.
+"""
+
+
+def _get_a2ui_enabled(ctx: ReadonlyContext):
+    return ctx.state.get(A2UI_ENABLED_KEY, False)
+
+
+def _get_a2ui_catalog(ctx: ReadonlyContext):
+    return ctx.state.get(A2UI_CATALOG_KEY)
+
+
+def _get_a2ui_examples(ctx: ReadonlyContext):
+    return ctx.state.get(A2UI_EXAMPLES_KEY)
+
+
+class RestaurantFinderAgent:
+    """Restaurant Finder agent with A2UI GE UI support."""
+
+    SUPPORTED_CONTENT_TYPES: ClassVar[list[str]] = ["text", "text/plain"]
+
+    def __init__(self, base_url: str):
+        self.base_url = base_url
+        self._agent_name = "a2ui_restaurant_finder"
+        self._user_id = "remote_agent"
+
+        self._session_service = InMemorySessionService()
+        self._memory_service = InMemoryMemoryService()
+        self._artifact_service = InMemoryArtifactService()
+
+        # Build schema managers for supported A2UI versions
+        self._schema_managers: dict[str, A2uiSchemaManager] = {}
+        for version in [VERSION_0_8]:
+            self._schema_managers[version] = self._build_schema_manager(version)
+
+        # Single runner with SendA2uiToClientToolset (conditionally enabled
+        # via session state — toolset returns no tools when A2UI is disabled)
+        self._runner = self._build_runner(self._build_llm_agent())
+
+        self._agent_card = self._build_agent_card()
+
+    @property
+    def agent_card(self) -> AgentCard:
+        return self._agent_card
+
+    def get_runner(self) -> Runner:
+        return self._runner
+
+    def get_schema_manager(self, version: str | None) -> A2uiSchemaManager | None:
+        if version is None:
+            return None
+        return self._schema_managers.get(version)
+
+    def _build_schema_manager(self, version: str) -> A2uiSchemaManager:
+        return A2uiSchemaManager(
+            version=version,
+            catalogs=[
+                CatalogConfig.from_path(
+                    name="restaurant_finder",
+                    catalog_path=CATALOG_DEFINITION_JSON,
+                    examples_path=os.path.join(
+                        _APP_DIR, "examples", "restaurant_finder_catalog", version
+                    ),
+                ),
+                BasicCatalog.get_config(
+                    version=version,
+                ),
+            ],
+            accepts_inline_catalogs=True,
+            schema_modifiers=[remove_strict_validation],
+        )
+
+    def _build_agent_card(self) -> AgentCard:
+        extensions = []
+        for version, sm in self._schema_managers.items():
+            ext = get_a2ui_agent_extension(
+                version,
+                sm.accepts_inline_catalogs,
+                sm.supported_catalog_ids,
+            )
+            extensions.append(ext)
+
+        capabilities = AgentCapabilities(
+            streaming=True,
+            extensions=extensions,
+        )
+
+        return AgentCard(
+            name="Restaurant Finder Agent",
+            description="Restaurant Finder Agent using Google Maps with A2UI",
+            url=self.base_url,
+            version="1.0.0",
+            default_input_modes=self.SUPPORTED_CONTENT_TYPES,
+            default_output_modes=self.SUPPORTED_CONTENT_TYPES,
+            capabilities=capabilities,
+            skills=[
+                AgentSkill(
+                    id="restaurant_lookup",
+                    name="Restaurant Lookup",
+                    description="Find restaurants and view their details.",
+                    tags=["restaurant", "food", "maps"],
+                    examples=[
+                        "Tell me about Han Dynasty?",
+                        "What restaurants are available in NYC?",
+                        "Show me the details of RedFarm.",
+                    ],
+                )
+            ],
+        )
+
+    def _build_runner(self, agent: LlmAgent) -> Runner:
+        return Runner(
+            app_name=self._agent_name,
+            agent=agent,
+            artifact_service=self._artifact_service,
+            session_service=self._session_service,
+            memory_service=self._memory_service,
+        )
+
+    def _build_llm_agent(self) -> LlmAgent:
+        """Builds the LLM agent with A2UI toolset (conditionally enabled)."""
+        model = DEFAULT_MODEL
+
+        # Use first available schema manager for base prompt generation
+        schema_manager = next(iter(self._schema_managers.values()), None)
+
+        maps_api_key = get_google_maps_api_key() or ""
+
+        instruction = (
+            schema_manager.generate_system_prompt(
+                role_description=ROLE_DESCRIPTION,
+                workflow_description=WORKFLOW_DESCRIPTION.replace(
+                    "{MAPS_API_KEY}", maps_api_key
+                ),
+                ui_description=UI_DESCRIPTION.replace("{MAPS_API_KEY}", maps_api_key),
+                include_schema=False,
+                include_examples=False,
+                validate_examples=False,
+            )
+            if schema_manager
+            else ROLE_DESCRIPTION
+        )
+
+        return LlmAgent(
+            model=model,
+            name=self._agent_name,
+            description="Restaurant Finder Agent using Google Maps",
+            instruction=instruction,
+            tools=[
+                find_restaurants,
+                get_directions,
+                AgentTool(agent=maps_agent),
+                SendA2uiToClientToolset(
+                    a2ui_enabled=_get_a2ui_enabled,
+                    a2ui_catalog=_get_a2ui_catalog,
+                    a2ui_examples=_get_a2ui_examples,
+                ),
+            ],
+            sub_agents=[],
+        )
