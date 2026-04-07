@@ -6,7 +6,8 @@ build-backend = "hatchling.build"
 dev = [
   "pytest>=8.3.4,<9.0.0",
   "pytest-asyncio>=0.23.8,<1.0.0",
-  "nest-asyncio>=1.6.0,<2.0.0"
+  "nest-asyncio>=1.6.0,<2.0.0",
+  "locust>=2.43.4",
 ]
 
 [project]
@@ -80,6 +81,10 @@ packages = ["app", "frontend"]
 [tool.pytest.ini_options]
 pythonpath = "."
 asyncio_default_fixture_loop_scope = "function"
+# Exclude load tests from pytest discovery — locust's gevent monkey-patching
+# causes RecursionError when pytest tries to collect these files.
+# Run load tests via the locust CLI instead.
+norecursedirs = ["tests/load_test"]
 
 [tool.ruff]
 line-length = 88

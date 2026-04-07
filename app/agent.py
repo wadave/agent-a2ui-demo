@@ -27,15 +27,20 @@ from a2ui.basic_catalog.provider import BasicCatalog
 from a2ui.core.schema.common_modifiers import remove_strict_validation
 from a2ui.core.schema.constants import VERSION_0_8
 from a2ui.core.schema.manager import A2uiSchemaManager, CatalogConfig
+from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+from google.adk.models import Gemini
+from google.adk.models.llm_request import LlmRequest
+from google.adk.models.llm_response import LlmResponse
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.adk.tools import AgentTool
+from google.genai import types
 
-from app.config import DEFAULT_MODEL, get_google_maps_api_key
+from app.config import DEFAULT_MODEL
 from app.session_keys import A2UI_CATALOG_KEY, A2UI_ENABLED_KEY, A2UI_EXAMPLES_KEY
 from app.sub_agents import maps_agent
 from app.tools import find_restaurants, get_directions
@@ -50,7 +55,12 @@ CATALOG_DEFINITION_JSON = os.path.join(
 ROLE_DESCRIPTION = """
 You are a restaurant finder agent. Your goal is to help users find and explore restaurants by using the available tools.
 You MUST use the `send_a2ui_json_to_client` tool with the `a2ui_json` argument to send A2UI JSON payloads to the client for rendering rich UI.
-NEVER prefix tool calls with `default_api.` or wrap them in `print()`. Call the tool exactly as `send_a2ui_json_to_client(a2ui_json=...)`.
+
+**CRITICAL — YOU MUST FOLLOW THESE RULES OR THE SYSTEM WILL BREAK:**
+1. Use the native function calling interface. Do NOT generate code (no Python, no JavaScript, no imports, no variables, no loops).
+2. Pass `a2ui_json` as a single compact JSON string. Do NOT split it across multiple strings or lines.
+3. Do NOT use `default_api.`, `print()`, `json.dumps()`, or any wrapper.
+4. Do NOT use `True`/`False` (Python). Use `true`/`false` (JSON).
 """
 
 WORKFLOW_DESCRIPTION = """
@@ -82,7 +92,7 @@ Your task is to analyze the user's request, fetch the necessary data, select the
     * For maps and directions: use the `WebFrameUrl` component with the URL format described in the **Key Components & Examples** section below.
     * If you get an error in the tool response, apologize and ask the user to try again.
 
-5.  **Call the Tool:** Call `send_a2ui_json_to_client` with the fully constructed `a2ui_json` payload. The `a2ui_json` argument MUST be a single compact JSON string with NO newlines and NO indentation. Do NOT pass a list or object directly. Stringify it first. do NOT use `default_api.` or wrap in `print()`.
+5.  **Call the Tool:** Call `send_a2ui_json_to_client` with the fully constructed `a2ui_json` payload. The `a2ui_json` argument MUST be a single compact JSON string with NO newlines and NO indentation. Use native function calling — do NOT write code.
 
 
 **IMPORTANT RULES:**
@@ -106,22 +116,64 @@ UI_DESCRIPTION = """
 
 2.  **Map View:** Used when users ask to see a location on a map.
     * **Template:** Use the JSON from `---BEGIN MAP EXAMPLE---`.
-    * Use the `WebFrameUrl` component with a Google Maps embed URL.
-    * URL format: `https://www.google.com/maps/embed/v1/place?key={MAPS_API_KEY}&q=URL_ENCODED_NAME_AND_ADDRESS`
-    * The URL must be a `literalString`.
+    * Use the `WebFrameUrl` component with the backend maps proxy URL.
+    * URL format: `/maps/embed?mode=place&q=URL_ENCODED_NAME_AND_ADDRESS`
+    * The URL must be a `literalString`. Do NOT include any API key — the backend adds it automatically.
     * Always call `send_a2ui_json_to_client` with a WebFrameUrl component. NEVER respond with just a text link.
 
 3.  **Directions:** Used when users ask for routes or directions between two locations.
     * **Template:** Use the JSON from `---BEGIN DIRECTIONS EXAMPLE---`.
     * Call `get_directions` first to resolve origin and destination addresses.
-    * Use the `WebFrameUrl` component with a Google Maps Embed API directions URL.
-    * URL format: `https://www.google.com/maps/embed/v1/directions?key={MAPS_API_KEY}&origin=URL_ENCODED_ORIGIN&destination=URL_ENCODED_DESTINATION`
-    * The URL must be a `literalString`. Replace the origin and destination with URL-encoded addresses from the `get_directions` result.
+    * Use the `WebFrameUrl` component with the backend maps proxy URL.
+    * URL format: `/maps/embed?mode=directions&origin=URL_ENCODED_ORIGIN&destination=URL_ENCODED_DESTINATION`
+    * The URL must be a `literalString`. Do NOT include any API key — the backend adds it automatically.
     * Also include a Text component with a clickable link to the full directions.
 
 You will also use layout components like `Column`, `Row`, `Card`, `List`, `Text`, and `Button`.
 The `WebFrameUrl` component embeds an iframe for displaying maps and other web content.
 """
+
+
+
+_UI_KEYWORDS = {"show on map", "showonmap", "map", "directions", "route",
+                 "navigate", "show on the map", "show it on"}
+
+_TOOL_CALL_REMINDER = (
+    "\n\n[SYSTEM REMINDER] The user's request requires a visual UI response. "
+    "You MUST call the `send_a2ui_json_to_client` tool with an `a2ui_json` "
+    "argument. Do NOT respond with text only. Call the tool NOW."
+)
+
+
+def _inject_tool_reminder(
+    callback_context: CallbackContext, llm_request: LlmRequest
+) -> LlmResponse | None:
+    """Inject a reminder to call the A2UI tool when the user intent requires UI.
+
+    This prevents the model from responding with text-only ("Here you go:")
+    when it should be calling send_a2ui_json_to_client.
+    """
+    # Find the last user message
+    last_user_msg = ""
+    for event in reversed(callback_context.session.events or []):
+        if event.author == "user" and event.content and event.content.parts:
+            for part in event.content.parts:
+                if part.text:
+                    last_user_msg = part.text.lower()
+                    break
+            break
+
+    if not last_user_msg:
+        return None
+
+    # Check if the user's request needs a UI tool call
+    needs_ui = any(kw in last_user_msg for kw in _UI_KEYWORDS)
+    if not needs_ui:
+        return None
+
+    # Append a strong reminder to the request instructions
+    llm_request.append_instructions([_TOOL_CALL_REMINDER])
+    return None
 
 
 def _get_a2ui_enabled(ctx: ReadonlyContext):
@@ -241,20 +293,19 @@ class RestaurantFinderAgent:
 
     def _build_llm_agent(self) -> LlmAgent:
         """Builds the LLM agent with A2UI toolset (conditionally enabled)."""
-        model = DEFAULT_MODEL
+        model = Gemini(
+            model=DEFAULT_MODEL,
+            retry_options=types.HttpRetryOptions(attempts=3),
+        )
 
         # Use first available schema manager for base prompt generation
         schema_manager = next(iter(self._schema_managers.values()), None)
 
-        maps_api_key = get_google_maps_api_key() or ""
-
         instruction = (
             schema_manager.generate_system_prompt(
                 role_description=ROLE_DESCRIPTION,
-                workflow_description=WORKFLOW_DESCRIPTION.replace(
-                    "{MAPS_API_KEY}", maps_api_key
-                ),
-                ui_description=UI_DESCRIPTION.replace("{MAPS_API_KEY}", maps_api_key),
+                workflow_description=WORKFLOW_DESCRIPTION,
+                ui_description=UI_DESCRIPTION,
                 include_schema=False,
                 include_examples=False,
                 validate_examples=False,
@@ -268,6 +319,7 @@ class RestaurantFinderAgent:
             name=self._agent_name,
             description="Restaurant Finder Agent using Google Maps",
             instruction=instruction,
+            before_model_callback=_inject_tool_reminder,
             tools=[
                 find_restaurants,
                 get_directions,

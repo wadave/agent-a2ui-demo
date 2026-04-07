@@ -41,7 +41,7 @@
           "component": {
             "WebFrameUrl": {
               "url": {
-                "literalString": "https://www.google.com/maps/embed/v1/directions?key={MAPS_API_KEY}&origin=URL_ENCODED_ORIGIN&destination=URL_ENCODED_DESTINATION"
+                "literalString": "/maps/embed?mode=directions&origin=URL_ENCODED_ORIGIN&destination=URL_ENCODED_DESTINATION"
               }
             }
           }

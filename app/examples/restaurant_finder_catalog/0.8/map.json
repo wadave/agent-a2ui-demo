@@ -40,7 +40,7 @@
           "component": {
             "WebFrameUrl": {
               "url": {
-                "literalString": "https://www.google.com/maps/embed/v1/place?key={MAPS_API_KEY}&q=Restaurant+A,+123+Main+St"
+                "literalString": "/maps/embed?mode=place&q=Restaurant+A,+123+Main+St"
               }
             }
           }

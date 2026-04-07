@@ -12,7 +12,22 @@ This application demonstrates a full-stack AI agent architecture where:
 - A **save-then-render** pattern stores restaurant data via `dataModelUpdate` before rendering the UI via `surfaceUpdate`, enabling data reuse across conversation turns.
 - A custom **GoogleMap** component extends the A2UI catalog for the custom frontend, while **WebFrameUrl** (built-in to GE) provides Google Maps embeds via the Maps Embed API for compatibility with both GE and custom UI.
 
-## Architecture Diagram
+## High-Level Architecture
+
+```mermaid
+graph TB
+    User([User]) --> Frontend[Lit Frontend]
+    Frontend -->|A2A | Backend[ADK Backend]
+    Backend --> Agent[Gemini Agent]
+    Agent --> Tools[find_restaurants<br/>get_directions<br/>maps_agent]
+    Tools -->|Grounding| GCP[Google Cloud<br/>Gemini API + Maps]
+    Agent -->|A2UI JSON| Backend
+    Backend -->|"Response<br/>Text + A2UI"| Frontend
+    Frontend -->|"/maps/embed<br/>proxy redirect"| MapsEmbed[Maps Embed API]
+    MapsEmbed -->|iframe content| Frontend
+```
+
+## Detailed Architecture
 
 ```mermaid
 graph TB
