@@ -451,6 +451,7 @@ client_secret.json
 # Agent / AI Configuration
 .claude/
 .agent/
+.agents/
 .gemini/
 GEMINI.md
 CLAUDE.md
@@ -491,3 +492,5 @@ logs/
 
 scratch/
 .cline*
+.agent/
+.agents/

@@ -405,7 +405,52 @@ flowchart LR
     style RUNTIME fill:#FEF7E0,stroke:#F9AB00,stroke-width:2px,color:#E37400
 ```
 
+### Schema Manager Workflow
+
+```mermaid
+---
+config:
+  theme: base
+  themeVariables:
+    primaryColor: "#E8F0FE"
+    primaryTextColor: "#1a73e8"
+    primaryBorderColor: "#4285F4"
+    secondaryColor: "#E6F4EA"
+    secondaryTextColor: "#1e8e3e"
+    secondaryBorderColor: "#34A853"
+    tertiaryColor: "#FEF7E0"
+    tertiaryTextColor: "#E37400"
+    tertiaryBorderColor: "#F9AB00"
+    lineColor: "#5f6368"
+    fontSize: 16px
+---
+flowchart TD
+    subgraph INIT ["1. Initialization (agent.py)"]
+        A1["Load CatalogConfig<br/>(catalog.json + examples)"] --> A2["Initialize A2uiSchemaManager"]
+    end
+
+    subgraph REQUEST ["2. Request Loop (agent_executor.py)"]
+        B1["User Request"] --> B2["Detect X-A2A-Extensions Header"]
+        B2 -->|Enabled| B3["Load Catalog & Examples into Session"]
+    end
+
+    subgraph INFERENCE ["3. Inference & Validation"]
+        B3 --> C1["LLM Intent Resolution"]
+        C1 --> C2["Domain Tools Execution"]
+        C2 --> C3["A2UI Payload Generation"]
+        C3 --> C4["Validation via Schema Manager"]
+    end
+
+    INIT --> B3
+    C4 -->|Success| D["Send DataPart to Client"]
+
+    style INIT fill:#E8F0FE,stroke:#4285F4,stroke-width:2px,color:#1a73e8
+    style REQUEST fill:#E6F4EA,stroke:#34A853,stroke-width:2px,color:#1e8e3e
+    style INFERENCE fill:#FEF7E0,stroke:#F9AB00,stroke-width:2px,color:#E37400
+```
+
 ### Detailed Steps
+
 
 #### Step 1. Define Your Catalog
 
