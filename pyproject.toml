@@ -7,7 +7,7 @@ dev = [
   "pytest>=8.3.4,<9.0.0",
   "pytest-asyncio>=0.23.8,<1.0.0",
   "nest-asyncio>=1.6.0,<2.0.0",
-  "locust>=2.43.4",
+  "locust>=2.43.4"
 ]
 
 [project]
@@ -34,10 +34,6 @@ dependencies = [
   "gh>=0.0.4"
 ]
 requires-python = ">=3.10,<3.14"
-
-[[tool.uv.index]]
-url = "https://pypi.org/simple"
-default = true
 
 [project.optional-dependencies]
 jupyter = [
@@ -124,3 +120,7 @@ deprecated = "ignore"
 
 [tool.ty.src]
 exclude = [".venv/**"]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+default = true

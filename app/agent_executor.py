@@ -76,14 +76,20 @@ def _replace_proxy_urls(obj):
 class _MapsKeyEventConverter(A2uiEventConverter):
     """Wraps A2uiEventConverter to inject the Maps API key into proxy URLs."""
 
-    def __call__(self, event, invocation_context, task_id=None, context_id=None,
-                 part_converter_func=None):
-        kwargs = dict(
-            event=event,
-            invocation_context=invocation_context,
-            task_id=task_id,
-            context_id=context_id,
-        )
+    def __call__(
+        self,
+        event,
+        invocation_context,
+        task_id=None,
+        context_id=None,
+        part_converter_func=None,
+    ):
+        kwargs = {
+            "event": event,
+            "invocation_context": invocation_context,
+            "task_id": task_id,
+            "context_id": context_id,
+        }
         if part_converter_func is not None:
             kwargs["part_converter_func"] = part_converter_func
         a2a_events = super().__call__(**kwargs)
@@ -93,10 +99,12 @@ class _MapsKeyEventConverter(A2uiEventConverter):
             if message and message.parts:
                 for part in message.parts:
                     data_part = getattr(part, "root", None)
-                    if (isinstance(data_part, DataPart)
-                            and data_part.metadata
-                            and data_part.metadata.get("mimeType") == A2UI_MIME_TYPE
-                            and data_part.data):
+                    if (
+                        isinstance(data_part, DataPart)
+                        and data_part.metadata
+                        and data_part.metadata.get("mimeType") == A2UI_MIME_TYPE
+                        and data_part.data
+                    ):
                         data_part.data = _replace_proxy_urls(data_part.data)
         return a2a_events
 

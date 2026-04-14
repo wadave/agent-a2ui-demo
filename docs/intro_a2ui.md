@@ -472,7 +472,7 @@ instruction = schema_manager.generate_system_prompt(
     workflow_description="1. Analyze the request...",
     ui_description="Use Card for detail views...",
     include_schema=False,
-    include_examples=False,    # examples loaded dynamically via session
+    include_examples=False,  # examples loaded dynamically via session
     validate_examples=False,
 )
 ```

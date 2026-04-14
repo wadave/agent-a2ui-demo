@@ -134,9 +134,16 @@ The `WebFrameUrl` component embeds an iframe for displaying maps and other web c
 """
 
 
-
-_UI_KEYWORDS = {"show on map", "showonmap", "map", "directions", "route",
-                 "navigate", "show on the map", "show it on"}
+_UI_KEYWORDS = {
+    "show on map",
+    "showonmap",
+    "map",
+    "directions",
+    "route",
+    "navigate",
+    "show on the map",
+    "show it on",
+}
 
 _TOOL_CALL_REMINDER = (
     "\n\n[SYSTEM REMINDER] The user's request requires a visual UI response. "
