@@ -490,3 +490,4 @@ logs/
 .adk
 
 scratch/
+.cline*
