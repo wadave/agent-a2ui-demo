@@ -405,7 +405,7 @@ flowchart LR
     style RUNTIME fill:#FEF7E0,stroke:#F9AB00,stroke-width:2px,color:#E37400
 ```
 
-### Schema Manager Workflow
+### A2UI Request Lifecycle
 
 ```mermaid
 ---
@@ -422,32 +422,40 @@ config:
     tertiaryTextColor: "#E37400"
     tertiaryBorderColor: "#F9AB00"
     lineColor: "#5f6368"
-    fontSize: 16px
+    fontSize: 14px
 ---
 flowchart TD
-    subgraph INIT ["1. Initialization (agent.py)"]
-        A1["Load CatalogConfig<br/>(catalog.json + examples)"] --> A2["Initialize A2uiSchemaManager"]
+    A["📦 Init <i>(server startup)</i><br/><i>agent.py</i> — Load CatalogConfig<br/>+ A2uiSchemaManager"]
+
+    A -->|"pre-loaded"| B
+
+    subgraph REQUEST ["Per-Request Flow"]
+        direction LR
+        U(("👤 User<br/><i>Browser</i>")) -->|"message +<br/>X-A2A-Extensions"| B
+
+        B["🤝 Handshake<br/><i>agent_executor.py</i><br/>Detect X-A2A-Extensions<br/>→ Load catalog & examples"] -->|enabled| C
+
+        C["🔧 Execute<br/><i>tools.py</i>→ find_restaurants()"] --> D
+
+        D["✅ Validate & Send<br/><i>Schema Manager</i><br/>Build components<br/>→ Validate → DataPart"] -->|"A2UI JSON<br/>DataParts"| R
+
+        R["🖥️ Render<br/><i>A2UI Renderer</i><br/>→ Rich UI"] --> U
     end
 
-    subgraph REQUEST ["2. Request Loop (agent_executor.py)"]
-        B1["User Request"] --> B2["Detect X-A2A-Extensions Header"]
-        B2 -->|Enabled| B3["Load Catalog & Examples into Session"]
-    end
-
-    subgraph INFERENCE ["3. Inference & Validation"]
-        B3 --> C1["LLM Intent Resolution"]
-        C1 --> C2["Domain Tools Execution"]
-        C2 --> C3["A2UI Payload Generation"]
-        C3 --> C4["Validation via Schema Manager"]
-    end
-
-    INIT --> B3
-    C4 -->|Success| D["Send DataPart to Client"]
-
-    style INIT fill:#E8F0FE,stroke:#4285F4,stroke-width:2px,color:#1a73e8
-    style REQUEST fill:#E6F4EA,stroke:#34A853,stroke-width:2px,color:#1e8e3e
-    style INFERENCE fill:#FEF7E0,stroke:#F9AB00,stroke-width:2px,color:#E37400
+    style A fill:#E8F0FE,stroke:#4285F4,stroke-width:2px,color:#1a73e8
+    style U fill:#4285F4,stroke:#1a73e8,color:#fff
+    style B fill:#E6F4EA,stroke:#34A853,stroke-width:2px,color:#1e8e3e
+    style C fill:#FEF7E0,stroke:#F9AB00,stroke-width:2px,color:#E37400
+    style D fill:#FCE8E6,stroke:#EA4335,stroke-width:2px,color:#C5221F
+    style R fill:#E8F0FE,stroke:#4285F4,stroke-width:2px,color:#1a73e8
+    style REQUEST fill:none,stroke:#5f6368,stroke-width:1px,stroke-dasharray:5 5
 ```
+
+> **Example**: *"Find Mexican restaurants in Downtown LA"*
+> 1. **Handshake** — `agent_executor.py` validates `X-A2A-Extensions` header from the client
+> 2. **Schema Manager** — Loads `restaurant_finder_catalog_definition.json` (components: `GoogleMap`, `Text`, ...) and example templates (`restaurant_selection.json`)
+> 3. **Tool Execution** — LLM calls `find_restaurants("Mexican restaurants Downtown LA")`
+> 4. **Validate & Send** — Agent builds layout (`Column` > `List` > `Card`), Schema Manager validates structure, sends as `DataPart`
 
 ### Detailed Steps
 
