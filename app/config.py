@@ -34,13 +34,19 @@ logger = logging.getLogger(__name__)
 # Google Cloud
 # ---------------------------------------------------------------------------
 GOOGLE_CLOUD_PROJECT: str | None = os.getenv("GOOGLE_CLOUD_PROJECT")
+# Vertex AI location for Gemini API calls. The genai SDK derives the
+# endpoint from this value (`global` -> aiplatform.googleapis.com,
+# `<region>` -> <region>-aiplatform.googleapis.com).
+# gemini-3-flash-preview and gemini-3.1-flash-lite-preview are only
+# served from the global endpoint; do not set this to a regional value
+# when using those models.
 GOOGLE_CLOUD_LOCATION: str = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
 A2UI_EXTENSION_URI = "https://a2ui.org/a2a-extension/a2ui/v0.9"
 
 # ---------------------------------------------------------------------------
 # Model
 # ---------------------------------------------------------------------------
-DEFAULT_MODEL: str = os.getenv("MODEL", "gemini-3-flash-preview")
+DEFAULT_MODEL: str = os.getenv("MODEL", "gemini-3.1-flash-lite-preview")
 
 # ---------------------------------------------------------------------------
 # Agent

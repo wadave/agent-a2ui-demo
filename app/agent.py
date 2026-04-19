@@ -46,12 +46,10 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.adk.tools import AgentTool
 from google.genai import types
 
 from app.config import DEFAULT_MODEL
 from app.session_keys import A2UI_CATALOG_KEY, A2UI_ENABLED_KEY, A2UI_EXAMPLES_KEY
-from app.sub_agents import maps_agent
 from app.tools import find_restaurants, get_directions
 
 logger = logging.getLogger(__name__)
@@ -121,7 +119,7 @@ Your task is to analyze the user's request, fetch the necessary data, select the
     * "Tell me about Han Dynasty" -> **Intent:** Restaurant Details (text only).
 
 2.  **Fetch Data:** Select and use the appropriate tool.
-    * Use **`find_restaurants`** for searching restaurants by query. Always pass the complete location context. Do NOT use `maps_agent` for restaurant searches.
+    * Use **`find_restaurants`** for searching restaurants by query. Always pass the complete location context.
     * Use **`get_directions`** for driving directions between two locations.
     * For **Map View**: you do NOT need to call any tool. Use the restaurant's address from the conversation context or cached data to estimate lat/lng coordinates, then render the GoogleMap component directly.
     * **Quality Check**: After calling `find_restaurants`, inspect the JSON output. Every restaurant MUST have a valid rating (stars) and a non-empty description. If any restaurant only has an address, do NOT display it. Instead, call `find_restaurants` again to find alternative restaurants that have complete details.
@@ -146,7 +144,7 @@ Your task is to analyze the user's request, fetch the necessary data, select the
 
 **IMPORTANT RULES:**
 - When the user asks for restaurant details, respond with **text only** in Markdown format. Do NOT call the A2UI tool.
-- For found restaurants (e.g. from buttons like 'Show on map'), use `send_a2ui_json_to_client` directly. Do NOT use `maps_agent` to search for them again. Use the name and address you already have.
+- For found restaurants (e.g. from buttons like 'Show on map'), use `send_a2ui_json_to_client` directly with the name and address you already have. Do NOT re-fetch the restaurant.
 - When the user asks for directions, call `get_directions` to resolve addresses, then use `send_a2ui_json_to_client` with a WebFrameUrl showing the route. Also include a Text component with a clickable link: "[View full directions on Google Maps](directions_url)".
 - For restaurant lists, map views, and directions, you MUST use the A2UI tool.
 - **Use Conversation History**: If the user refers to a location or restaurant mentioned previously (like "Urban Plates"), you MUST check the conversation history for its address. Do NOT ask the user for the address or search for it if it was already provided in the chat.
@@ -321,8 +319,8 @@ class RestaurantFinderAgent:
         )
 
         return AgentCard(
-            name="Restaurant Finder Agent",
-            description="Restaurant Finder Agent using Google Maps with A2UI",
+            name="Restaurant Finder Agent (A2UI v0.9)",
+            description="Restaurant Finder Agent using Google Maps with A2UI v0.9",
             url=self.base_url,
             version="1.0.0",
             default_input_modes=self.SUPPORTED_CONTENT_TYPES,
@@ -384,7 +382,6 @@ class RestaurantFinderAgent:
             tools=[
                 find_restaurants,
                 get_directions,
-                AgentTool(agent=maps_agent),
                 SendA2uiToClientToolset(
                     a2ui_enabled=_get_a2ui_enabled,
                     a2ui_catalog=_get_a2ui_catalog,

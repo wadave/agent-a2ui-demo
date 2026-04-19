@@ -6,22 +6,21 @@ set -e
 # --- Configuration ---
 if [[ "$#" -lt 2 ]]; then
     echo "Usage: $0   [MODEL_NAME]"
-    echo "MODEL_NAME can be 'gemini-2.5-pro' or 'gemini-2.5-flash' (default)."
+    echo "MODEL_NAME defaults to 'gemini-3.1-flash-lite-preview'."
     exit 1
 fi
 
 PROJECT_ID=$1
 SERVICE_NAME=$2
-MODEL_NAME=${3:-"gemini-2.5-flash"}
+MODEL_NAME=${3:-"gemini-3.1-flash-lite-preview"}
 
-# Validate model name
-if [[ "$MODEL_NAME" != "gemini-2.5-pro" && "$MODEL_NAME" != "gemini-2.5-flash" ]]; then
-    echo "Invalid model name. Please use 'gemini-2.5-pro' or 'gemini-2.5-flash'."
-    exit 1
-fi
-
-# The region to deploy to
+# Cloud Run region (where the container runs).
 REGION="us-central1"
+
+# Vertex AI location for Gemini API calls. gemini-3.x models are only
+# served from the global endpoint; using a regional value here will cause
+# 404s for those models.
+VERTEX_LOCATION="global"
 
 # The memory to allocate to the service
 MEMORY="1Gi"
@@ -42,7 +41,7 @@ gcloud run deploy "$SERVICE_NAME" \
 --region "$REGION" \
 --memory "$MEMORY" \
 --no-allow-unauthenticated \
---set-env-vars=GOOGLE_CLOUD_PROJECT="$PROJECT_ID",GOOGLE_CLOUD_LOCATION="$REGION",GOOGLE_GENAI_USE_VERTEXAI=TRUE,MODEL="$MODEL_NAME"
+--set-env-vars=GOOGLE_CLOUD_PROJECT="$PROJECT_ID",GOOGLE_CLOUD_LOCATION="$VERTEX_LOCATION",GOOGLE_GENAI_USE_VERTEXAI=TRUE,MODEL="$MODEL_NAME"
 
 echo "Deployment complete."
 echo "Service URL: $(gcloud run services describe "$SERVICE_NAME" \
