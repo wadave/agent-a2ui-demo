@@ -207,9 +207,9 @@ Let's talk implementation. What does a developer actually need to do to add A2UI
 
 The philosophy of A2UI is a clean separation of three concerns.
 
-The component tree — the structure — is defined by `surfaceUpdate` messages. Think of this as the skeleton of your UI.
+The component tree — the structure — is defined by `updateComponents` messages. Think of this as the skeleton of your UI.
 
-The data model — the state — is populated separately by `dataModelUpdate` messages. This is the live data that fills in the skeleton.
+The data model — the state — is populated separately by `updateDataModel` messages. This is the live data that fills in the skeleton.
 
 The widget registry — what we call the catalog — lives on the client. It maps component names to native widget implementations. The server references it, but never modifies it.
 
@@ -221,7 +221,7 @@ This decoupling is what makes A2UI secure: the agent can only reference componen
 
 **Content:** *Client sends A2A JSON-RPC with X-A2A-Extensions → Server returns DataParts (application/json+a2ui).*
 
-Technically, A2UI rides on top of A2A JSON-RPC. The client sends a message with an `X-A2A-Extensions` header declaring that it supports A2UI. The server returns `DataPart` objects with MIME type `application/json+a2ui`. Each DataPart is an A2UI message — `beginRendering`, `surfaceUpdate`, `dataModelUpdate`.
+Technically, A2UI rides on top of A2A JSON-RPC. The client sends a message with an `X-A2A-Extensions` header declaring that it supports A2UI. The server returns `DataPart` objects with MIME type `application/json+a2ui`. Each DataPart is an A2UI v0.9 message — `createSurface`, `updateComponents`, `updateDataModel`.
 
 The client processes these in order, builds up the UI, and renders it. When the user interacts — taps a button, submits a form — that interaction goes back to the agent as a new A2A message. The loop closes cleanly.
 
@@ -287,11 +287,11 @@ At startup, `A2uiSchemaManager` merges your custom catalog with `BasicCatalog`. 
 
 ## Slide 27 — Examples: Teaching the LLM
 
-**Content:** *One file per UI pattern. beginRendering → surfaceUpdate → dataModelUpdate. Injected into system prompt.*
+**Content:** *One file per UI pattern. createSurface → updateComponents → updateDataModel. Injected into system prompt.*
 
 Examples are how the LLM learns to generate valid A2UI output. Think of them as few-shot prompts, but specifically for UI generation.
 
-Each example file shows a complete message sequence: `beginRendering` to initialize the surface, `surfaceUpdate` to define the component tree, and `dataModelUpdate` to populate the data.
+Each example file shows a complete message sequence: `createSurface` to initialize the surface, `updateComponents` to define the component tree, and `updateDataModel` to populate the data.
 
 Examples are loaded dynamically based on what the client supports and injected into the system prompt at runtime. The schema validates structure; examples demonstrate pattern. This is a critical point: bad examples lead directly to bad LLM output. Getting these right is one of the highest-leverage things you can do as an implementer.
 
@@ -303,7 +303,7 @@ Examples are loaded dynamically based on what the client supports and injected i
 
 The standard component library covers the most common UI needs out of the box.
 
-**Layout:** Row, Column, List for arranging content. **Display:** Text, Image, Icon, Video, Divider for showing information. **Interactive:** Button, TextField, MultipleChoice, DateTimeInput, Slider for user input. **Container:** Card, Tabs, Modal for grouping and organizing.
+**Layout:** Row, Column, List for arranging content. **Display:** Text, Image, Icon, Video, Divider for showing information. **Interactive:** Button, TextField, ChoicePicker, DateTimeInput, Slider for user input. **Container:** Card, Tabs, Modal for grouping and organizing.
 
 These are all documented at a2ui.org/reference/components. For anything beyond these, you define custom components in your catalog.
 

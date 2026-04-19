@@ -25,16 +25,6 @@ locals {
             ]
           }
         },
-        {
-          uri         = "https://a2ui.org/a2a-extension/a2ui/v0.8"
-          description = "Ability to render A2UI v0.8 rich components"
-          required    = false
-          params = {
-            supportedCatalogIds = [
-              "https://a2ui.org/specification/v0_8/standard_catalog_definition.json"
-            ]
-          }
-        },
       ]
     }
     skills = [

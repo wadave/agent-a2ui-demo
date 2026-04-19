@@ -13,7 +13,7 @@ graph TB
 
         BE --> Agent
         Agent -->|"Tool calls"| Tools
-        Agent -->|"dataModelUpdate\nsurfaceUpdate"| BE
+        Agent -->|"updateDataModel\nupdateComponents"| BE
     end
 
     BE -->|"Text + A2UI Blueprints"| FE

@@ -3,7 +3,7 @@
  * Uses raw fetch. Frontend is served from the same origin as the backend.
  */
 
-const A2UI_EXTENSION_V08 = "https://a2ui.org/a2a-extension/a2ui/v0.8";
+const A2UI_EXTENSION_V09 = "https://a2ui.org/a2a-extension/a2ui/v0.9";
 
 export interface A2UIMessage {
   [key: string]: unknown;
@@ -66,7 +66,7 @@ export class RestaurantA2UIClient {
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
-        "X-A2A-Extensions": A2UI_EXTENSION_V08,
+        "X-A2A-Extensions": A2UI_EXTENSION_V09,
       },
       body: JSON.stringify(rpcRequest),
     });

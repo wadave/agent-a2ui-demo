@@ -23,10 +23,19 @@ from a2ui.a2a import get_a2ui_agent_extension
 from a2ui.adk.a2a_extension.send_a2ui_to_client_toolset import (
     SendA2uiToClientToolset,
 )
-from a2ui.basic_catalog.provider import BasicCatalog
+from a2ui.basic_catalog.provider import BasicCatalog, BundledCatalogProvider
+from a2ui.core.schema.catalog import CatalogConfig
+from a2ui.core.schema.catalog_provider import (
+    A2uiCatalogProvider,
+    FileSystemCatalogProvider,
+)
 from a2ui.core.schema.common_modifiers import remove_strict_validation
-from a2ui.core.schema.constants import VERSION_0_8
-from a2ui.core.schema.manager import A2uiSchemaManager, CatalogConfig
+from a2ui.core.schema.constants import (
+    CATALOG_COMPONENTS_KEY,
+    CATALOG_ID_KEY,
+    VERSION_0_9,
+)
+from a2ui.core.schema.manager import A2uiSchemaManager
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.agents.readonly_context import ReadonlyContext
@@ -49,8 +58,47 @@ logger = logging.getLogger(__name__)
 
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CATALOG_DEFINITION_JSON = os.path.join(
-    _APP_DIR, "catalog_schemas", "0.8", "restaurant_finder_catalog_definition.json"
+    _APP_DIR, "catalog_schemas", "0.9", "restaurant_finder_catalog_definition.json"
 )
+
+
+class _MergedBasicCatalogProvider(A2uiCatalogProvider):
+    """Loads the bundled basic catalog and merges our custom components.
+
+    v0.9 validation references `catalog.json#/$defs/anyComponent`, so a
+    catalog used standalone must include both the basic component
+    definitions and the `$defs.anyComponent` discriminator entry. Rather
+    than duplicate the entire basic catalog in JSON, we load it from the
+    SDK at startup and inject the custom components and matching
+    `oneOf` entries.
+    """
+
+    def __init__(self, version: str, custom_catalog_path: str, catalog_id: str):
+        self._basic = BundledCatalogProvider(version)
+        self._custom = FileSystemCatalogProvider(custom_catalog_path)
+        self._catalog_id = catalog_id
+
+    def load(self) -> dict:
+        merged = self._basic.load()
+        custom = self._custom.load()
+        merged[CATALOG_ID_KEY] = self._catalog_id
+
+        custom_components = custom.get(CATALOG_COMPONENTS_KEY, {})
+        merged.setdefault(CATALOG_COMPONENTS_KEY, {}).update(custom_components)
+
+        any_component = merged.setdefault("$defs", {}).setdefault(
+            "anyComponent",
+            {"oneOf": [], "discriminator": {"propertyName": "component"}},
+        )
+        one_of = any_component.setdefault("oneOf", [])
+        existing_refs = {item.get("$ref") for item in one_of if isinstance(item, dict)}
+        for name in custom_components:
+            ref = f"#/{CATALOG_COMPONENTS_KEY}/{name}"
+            if ref not in existing_refs:
+                one_of.append({"$ref": ref})
+
+        return merged
+
 
 ROLE_DESCRIPTION = """
 You are a restaurant finder agent. Your goal is to help users find and explore restaurants by using the available tools.
@@ -88,8 +136,9 @@ Your task is to analyze the user's request, fetch the necessary data, select the
     * Use the chosen example as the base value for the `a2ui_json` argument.
     * **Generate a new `surfaceId`** for each request.
     * **Update the title** and data to reflect the actual query and tool results.
-    * For restaurant lists: populate `dataModelUpdate.contents` with restaurant data from `find_restaurants`.
+    * For restaurant lists: populate `updateDataModel.value` with restaurant data from `find_restaurants` (a plain JSON object — no `valueString` wrappers).
     * For maps and directions: use the `WebFrameUrl` component with the URL format described in the **Key Components & Examples** section below.
+    * Every message MUST include `"version": "v0.9"` at the top level.
     * If you get an error in the tool response, apologize and ask the user to try again.
 
 5.  **Call the Tool:** Call `send_a2ui_json_to_client` with the fully constructed `a2ui_json` payload. The `a2ui_json` argument MUST be a single compact JSON string with NO newlines and NO indentation. Use native function calling — do NOT write code.
@@ -111,14 +160,14 @@ UI_DESCRIPTION = """
 
 1.  **Restaurant List:** Used when users ask to find/browse restaurants.
     * **Template:** Use the JSON from `---BEGIN RESTAURANT_SELECTION EXAMPLE---`.
-    * Populate the `dataModelUpdate` with real restaurant data from the `find_restaurants` tool.
+    * Populate the `updateDataModel.value` with real restaurant data from the `find_restaurants` tool.
     * Each restaurant item should have: name, rating (★ characters), detail, address, infoLink.
 
 2.  **Map View:** Used when users ask to see a location on a map.
     * **Template:** Use the JSON from `---BEGIN MAP EXAMPLE---`.
     * Use the `WebFrameUrl` component with the backend maps proxy URL.
     * URL format: `/maps/embed?mode=place&q=URL_ENCODED_NAME_AND_ADDRESS`
-    * The URL must be a `literalString`. Do NOT include any API key — the backend adds it automatically.
+    * The URL is a plain string (v0.9 simplified bound values). Do NOT include any API key — the backend adds it automatically.
     * Always call `send_a2ui_json_to_client` with a WebFrameUrl component. NEVER respond with just a text link.
 
 3.  **Directions:** Used when users ask for routes or directions between two locations.
@@ -126,7 +175,7 @@ UI_DESCRIPTION = """
     * Call `get_directions` first to resolve origin and destination addresses.
     * Use the `WebFrameUrl` component with the backend maps proxy URL.
     * URL format: `/maps/embed?mode=directions&origin=URL_ENCODED_ORIGIN&destination=URL_ENCODED_DESTINATION`
-    * The URL must be a `literalString`. Do NOT include any API key — the backend adds it automatically.
+    * The URL is a plain string (v0.9 simplified bound values). Do NOT include any API key — the backend adds it automatically.
     * Also include a Text component with a clickable link to the full directions.
 
 You will also use layout components like `Column`, `Row`, `Card`, `List`, `Text`, and `Button`.
@@ -211,7 +260,7 @@ class RestaurantFinderAgent:
 
         # Build schema managers for supported A2UI versions
         self._schema_managers: dict[str, A2uiSchemaManager] = {}
-        for version in [VERSION_0_8]:
+        for version in [VERSION_0_9]:
             self._schema_managers[version] = self._build_schema_manager(version)
 
         # Single runner with SendA2uiToClientToolset (conditionally enabled
@@ -233,12 +282,17 @@ class RestaurantFinderAgent:
         return self._schema_managers.get(version)
 
     def _build_schema_manager(self, version: str) -> A2uiSchemaManager:
+        custom_catalog_id = "https://github.com/user/agent-a2ui-demo/restaurant_finder_catalog_definition.json"
         return A2uiSchemaManager(
             version=version,
             catalogs=[
-                CatalogConfig.from_path(
+                CatalogConfig(
                     name="restaurant_finder",
-                    catalog_path=CATALOG_DEFINITION_JSON,
+                    provider=_MergedBasicCatalogProvider(
+                        version=version,
+                        custom_catalog_path=CATALOG_DEFINITION_JSON,
+                        catalog_id=custom_catalog_id,
+                    ),
                     examples_path=os.path.join(
                         _APP_DIR, "examples", "restaurant_finder_catalog", version
                     ),

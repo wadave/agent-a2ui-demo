@@ -1,134 +1,189 @@
 /**
- * Custom A2UI GoogleMap component for embedding Google Maps.
- * Supports the GE pattern: center (lat/lng), zoom, and pins.
+ * Custom A2UI v0.9 components for the restaurant finder:
+ *
+ *   - WebFrameUrl: embeds a URL in an iframe. Used for Google Maps embeds and
+ *     other web content the agent wants to surface.
+ *   - GoogleMap: renders a Google Map with center/zoom/pins, falling back to
+ *     a maps.google.com embed.
+ *
+ * Both components follow the v0.9 catalog pattern: a Zod schema declares the
+ * component's API, a LitElement subclass binds via `A2uiController` and reads
+ * resolved props off `this.controller.props`. The exported `customCatalog`
+ * gets passed to `MessageProcessor` alongside `basicCatalog`.
  */
 
 import { html, css, nothing } from "lit";
-import { customElement, property } from "lit/decorators.js";
-import { Root } from "@a2ui/lit/ui";
+import { customElement } from "lit/decorators.js";
+import { z } from "zod";
+import {
+  A2uiController,
+  A2uiLitElement,
+  type LitComponentApi,
+} from "@a2ui/lit/v0_9";
+import { Catalog } from "@a2ui/web_core/v0_9";
 
-export class WebFrameUrl extends Root {
-  static override styles = [
-    ...Root.styles,
-    css`
-      :host { display: block; width: 100%; overflow: hidden; }
-      .frame-container { position: relative; width: 100%; border-radius: 8px; overflow: hidden; }
-      iframe { width: 100%; height: 100%; border: none; }
-    `,
-  ];
+/** Catalog ID — must match the `catalogId` in the backend custom catalog file. */
+const CATALOG_ID =
+  "https://github.com/user/agent-a2ui-demo/restaurant_finder_catalog_definition.json";
 
-  @property({ type: Object })
-  accessor url: unknown = null;
+// ---------------------------------------------------------------------------
+// Shared schema fragments
+// ---------------------------------------------------------------------------
+
+/** v0.9 DynamicString: literal | { path } | { call, args, returnType }. */
+const DynamicString = z.union([
+  z.string(),
+  z.object({ path: z.string() }),
+  z.object({
+    call: z.string(),
+    args: z.record(z.any()),
+    returnType: z.string().optional(),
+  }),
+]);
+
+/** v0.9 DynamicNumber: literal | { path } | function call. */
+const DynamicNumber = z.union([
+  z.number(),
+  z.object({ path: z.string() }),
+  z.object({
+    call: z.string(),
+    args: z.record(z.any()),
+    returnType: z.string().optional(),
+  }),
+]);
+
+const PathBinding = z.object({ path: z.string() });
+
+// ---------------------------------------------------------------------------
+// WebFrameUrl
+// ---------------------------------------------------------------------------
+
+const WebFrameUrlSchema = z.object({
+  url: DynamicString,
+});
+
+const WebFrameUrlApi = {
+  name: "WebFrameUrl",
+  schema: WebFrameUrlSchema,
+};
+
+@customElement("a2ui-restaurant-webframeurl")
+export class A2uiWebFrameUrl extends A2uiLitElement<typeof WebFrameUrlApi> {
+  static override styles = css`
+    :host {
+      display: block;
+      width: 100%;
+      overflow: hidden;
+    }
+    .frame {
+      position: relative;
+      width: 100%;
+      height: 400px;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+    }
+  `;
+
+  protected createController(): A2uiController<typeof WebFrameUrlApi> {
+    return new A2uiController(this, WebFrameUrlApi);
+  }
 
   override render() {
-    let resolvedUrl: string | null = null;
-    if (this.url && typeof this.url === "object") {
-      const urlObj = this.url as Record<string, unknown>;
-      resolvedUrl = (urlObj.literalString as string) ?? null;
-      if (!resolvedUrl && urlObj.path && this.processor) {
-        const node = this.component ?? { dataContextPath: this.dataContextPath || "/" };
-        try {
-          resolvedUrl = this.processor.getData(node, urlObj.path as string, this.surfaceId ?? undefined) as string;
-        } catch { resolvedUrl = null; }
-      }
-    } else if (typeof this.url === "string") {
-      resolvedUrl = this.url;
-    }
-    if (!resolvedUrl) return nothing;
-    return html`<div class="frame-container" style="height:400px"><iframe src="${resolvedUrl}" loading="lazy" allowfullscreen style="border:0"></iframe></div>`;
+    const props = this.controller.props;
+    if (!props) return nothing;
+    const url = typeof props.url === "string" ? props.url : null;
+    if (!url) return nothing;
+    return html`
+      <div class="frame">
+        <iframe src=${url} loading="lazy" allowfullscreen></iframe>
+      </div>
+    `;
   }
 }
 
-@customElement("a2ui-googlemap")
-export class GoogleMap extends Root {
-  static override styles = [
-    ...Root.styles,
-    css`
-      :host {
-        display: block;
-        width: 100%;
-        overflow: hidden;
-      }
-      .map-container {
-        position: relative;
-        width: 100%;
-        border-radius: 8px;
-        overflow: hidden;
-        background: #e8eaed;
-      }
-      iframe {
-        width: 100%;
-        height: 100%;
-        border: none;
-      }
-    `,
-  ];
+export const WebFrameUrl: LitComponentApi = {
+  ...WebFrameUrlApi,
+  tagName: "a2ui-restaurant-webframeurl",
+};
 
-  @property({ type: Object })
-  accessor center: unknown = null;
+// ---------------------------------------------------------------------------
+// GoogleMap
+// ---------------------------------------------------------------------------
 
-  @property({ type: Object })
-  accessor zoom: unknown = null;
+const LatLng = z.object({ lat: z.number(), lng: z.number() });
 
-  @property({ type: Object })
-  accessor pins: unknown = null;
+const Pin = z.object({
+  lat: z.number(),
+  lng: z.number(),
+  name: z.string(),
+  description: z.string().optional(),
+  background: z.string().optional(),
+  borderColor: z.string().optional(),
+  glyphColor: z.string().optional(),
+});
 
-  // Legacy
-  @property({ type: String })
-  accessor url: string = "";
+const GoogleMapSchema = z.object({
+  center: z.union([LatLng, PathBinding]),
+  zoom: DynamicNumber,
+  pins: z.union([z.array(Pin), PathBinding]).optional(),
+});
 
-  @property({ type: Number })
-  accessor height: number = 400;
+const GoogleMapApi = {
+  name: "GoogleMap",
+  schema: GoogleMapSchema,
+};
 
-  private _resolveProp(val: unknown): unknown {
-    if (val == null) return null;
-    // Direct value (number, string, etc)
-    if (typeof val !== "object") return val;
+type ResolvedPin = z.infer<typeof Pin>;
 
-    const obj = val as Record<string, unknown>;
-
-    // Literal values
-    if ("literalNumber" in obj) return obj.literalNumber;
-    if ("literalObject" in obj) return obj.literalObject;
-    if ("literalArray" in obj) return obj.literalArray;
-    if ("literalString" in obj) return obj.literalString;
-
-    // Path reference — resolve from data model
-    if ("path" in obj && typeof obj.path === "string" && this.processor) {
-      const node = this.component ?? {
-        dataContextPath: this.dataContextPath || "/",
-      };
-      try {
-        const result = this.processor.getData(
-          node,
-          obj.path,
-          this.surfaceId ?? undefined
-        );
-        console.log(`[GoogleMap] resolve ${obj.path} =>`, result);
-        return result;
-      } catch (e) {
-        console.warn("[GoogleMap] getData failed:", obj.path, e);
-        return null;
-      }
+@customElement("a2ui-restaurant-googlemap")
+export class A2uiGoogleMap extends A2uiLitElement<typeof GoogleMapApi> {
+  static override styles = css`
+    :host {
+      display: block;
+      width: 100%;
+      overflow: hidden;
     }
+    .map {
+      width: 100%;
+      height: 400px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #e8eaed;
+    }
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+    }
+    .empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #5f6368;
+    }
+  `;
 
-    // Already a resolved object (e.g. {lat, lng})
-    if ("lat" in obj && "lng" in obj) return obj;
-
-    return obj;
+  protected createController(): A2uiController<typeof GoogleMapApi> {
+    return new A2uiController(this, GoogleMapApi);
   }
 
-  private _toLatLng(val: unknown): { lat: number; lng: number } | null {
+  /** Coerce a controller-resolved value (object or Map) to {lat, lng}. */
+  private toLatLng(val: unknown): { lat: number; lng: number } | null {
     if (val == null || typeof val !== "object") return null;
-
-    // Could be a Map (from the processor)
     if (val instanceof Map) {
       const lat = val.get("lat");
       const lng = val.get("lng");
-      if (lat != null && lng != null) return { lat: Number(lat), lng: Number(lng) };
+      if (lat != null && lng != null) {
+        return { lat: Number(lat), lng: Number(lng) };
+      }
       return null;
     }
-
     const obj = val as Record<string, unknown>;
     if (obj.lat != null && obj.lng != null) {
       return { lat: Number(obj.lat), lng: Number(obj.lng) };
@@ -136,129 +191,84 @@ export class GoogleMap extends Root {
     return null;
   }
 
-  private _toPinArray(
-    val: unknown
-  ): Array<{ lat: number; lng: number; name: string }> {
+  /** Coerce resolved pins payload (array, object-keyed-by-index, or Map) to a typed array. */
+  private toPinArray(val: unknown): ResolvedPin[] {
     if (val == null) return [];
-
-    // Map from processor
+    const extract = (v: unknown): ResolvedPin | null => {
+      if (v == null) return null;
+      const get = (k: string): unknown =>
+        v instanceof Map ? v.get(k) : (v as Record<string, unknown>)[k];
+      const lat = get("lat");
+      const lng = get("lng");
+      if (lat == null || lng == null) return null;
+      return {
+        lat: Number(lat),
+        lng: Number(lng),
+        name: (get("name") as string | undefined) ?? "",
+        description: get("description") as string | undefined,
+        background: get("background") as string | undefined,
+        borderColor: get("borderColor") as string | undefined,
+        glyphColor: get("glyphColor") as string | undefined,
+      };
+    };
     if (val instanceof Map) {
-      const result: Array<{ lat: number; lng: number; name: string }> = [];
-      for (const [, v] of val) {
-        const pin = this._extractPin(v);
-        if (pin) result.push(pin);
-      }
-      return result;
+      return [...val.values()].map(extract).filter((p): p is ResolvedPin => p != null);
     }
-
-    // Plain object keyed by index
-    if (typeof val === "object" && !Array.isArray(val)) {
-      return Object.values(val)
-        .map((v) => this._extractPin(v))
-        .filter((p): p is { lat: number; lng: number; name: string } => p != null);
-    }
-
-    // Array
     if (Array.isArray(val)) {
-      return val
-        .map((v) => this._extractPin(v))
-        .filter((p): p is { lat: number; lng: number; name: string } => p != null);
+      return val.map(extract).filter((p): p is ResolvedPin => p != null);
     }
-
+    if (typeof val === "object") {
+      return Object.values(val).map(extract).filter((p): p is ResolvedPin => p != null);
+    }
     return [];
   }
 
-  private _extractPin(
-    v: unknown
-  ): { lat: number; lng: number; name: string } | null {
-    if (v == null) return null;
-
-    let lat: number | undefined;
-    let lng: number | undefined;
-    let name = "";
-
-    if (v instanceof Map) {
-      lat = v.get("lat") as number;
-      lng = v.get("lng") as number;
-      name = (v.get("name") as string) ?? "";
-    } else if (typeof v === "object") {
-      const obj = v as Record<string, unknown>;
-      lat = obj.lat as number;
-      lng = obj.lng as number;
-      name = (obj.name as string) ?? "";
-    }
-
-    if (lat != null && lng != null) {
-      return { lat: Number(lat), lng: Number(lng), name };
-    }
-    return null;
-  }
-
   override render() {
-    // WebFrameUrl mode: url is {literalString: "..."} or {path: "..."}
-    if (this.url && typeof this.url === "object") {
-      const urlObj = this.url as Record<string, unknown>;
-      const resolvedUrl = urlObj.literalString as string
-        ?? (urlObj.path ? this._resolveProp(urlObj) as string : null);
-      if (resolvedUrl) {
-        return html`
-          <div class="map-container" style="height: ${this.height}px;">
-            <iframe src="${resolvedUrl}" loading="lazy" allowfullscreen style="border:0"></iframe>
-          </div>
-        `;
-      }
+    const props = this.controller.props;
+    if (!props) return nothing;
+
+    const center = this.toLatLng(props.center);
+    const zoom = typeof props.zoom === "number" ? props.zoom : 14;
+    const pins = this.toPinArray(props.pins);
+
+    if (!center) {
+      return html`<div class="map"><div class="empty">Map data not available</div></div>`;
     }
 
-    // Legacy: direct URL string
-    if (this.url && typeof this.url === "string") {
-      return html`
-        <div class="map-container" style="height: ${this.height}px;">
-          <iframe src="${this.url}" loading="lazy" allowfullscreen style="border:0"></iframe>
-        </div>
-      `;
-    }
-
-    const centerRaw = this._resolveProp(this.center);
-    const zoomRaw = this._resolveProp(this.zoom);
-    const pinsRaw = this._resolveProp(this.pins);
-
-    const centerVal = this._toLatLng(centerRaw);
-    const zoomVal = typeof zoomRaw === "number" ? zoomRaw : 14;
-    const pinArray = this._toPinArray(pinsRaw);
-
-    console.log("[GoogleMap] center:", centerVal, "zoom:", zoomVal, "pins:", pinArray.length);
-
-    if (!centerVal) {
-      return html`<div class="map-container" style="height:${this.height}px; display:flex; align-items:center; justify-content:center; color:#5f6368;">Map data not available</div>`;
-    }
-
-    // Build Google Maps embed URL
     let embedUrl: string;
-    if (pinArray.length >= 2) {
-      // Two+ pins: show directions route between first and second
-      const origin = pinArray[0];
-      const dest = pinArray[1];
+    if (pins.length >= 2) {
+      const [origin, dest] = pins;
       const saddr = encodeURIComponent(origin.name || `${origin.lat},${origin.lng}`);
       const daddr = encodeURIComponent(dest.name || `${dest.lat},${dest.lng}`);
       embedUrl = `https://maps.google.com/maps?saddr=${saddr}&daddr=${daddr}&output=embed`;
-    } else if (pinArray.length === 1) {
-      const pin = pinArray[0];
+    } else if (pins.length === 1) {
+      const [pin] = pins;
       const q = encodeURIComponent(pin.name || `${pin.lat},${pin.lng}`);
-      embedUrl = `https://maps.google.com/maps?q=${q}&z=${zoomVal}&output=embed`;
+      embedUrl = `https://maps.google.com/maps?q=${q}&z=${zoom}&output=embed`;
     } else {
-      const q = encodeURIComponent(`${centerVal.lat},${centerVal.lng}`);
-      embedUrl = `https://maps.google.com/maps?q=${q}&z=${zoomVal}&output=embed`;
+      const q = encodeURIComponent(`${center.lat},${center.lng}`);
+      embedUrl = `https://maps.google.com/maps?q=${q}&z=${zoom}&output=embed`;
     }
 
     return html`
-      <div class="map-container" style="height: ${this.height}px;">
-        <iframe
-          src="${embedUrl}"
-          loading="lazy"
-          allowfullscreen
-          style="border:0"
-        ></iframe>
+      <div class="map">
+        <iframe src=${embedUrl} loading="lazy" allowfullscreen></iframe>
       </div>
     `;
   }
 }
+
+export const GoogleMap: LitComponentApi = {
+  ...GoogleMapApi,
+  tagName: "a2ui-restaurant-googlemap",
+};
+
+// ---------------------------------------------------------------------------
+// Custom catalog
+// ---------------------------------------------------------------------------
+
+/** Custom catalog containing this app's WebFrameUrl + GoogleMap components. */
+export const customCatalog = new Catalog<LitComponentApi>(
+  CATALOG_ID,
+  [WebFrameUrl, GoogleMap],
+);

@@ -12,21 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Contains UI examples for Restaurant Finder sample (A2UI v0.8)."""
+"""Contains UI examples for Restaurant Finder sample (A2UI v0.9)."""
 
 RESTAURANT_SELECTION_EXAMPLES = r"""
 [
   {
-    "beginRendering": {
+    "version": "v0.9",
+    "createSurface": {
       "surfaceId": "restaurant-selection-surface",
-      "root": "root"
+      "catalogId": "https://github.com/user/agent-a2ui-demo/restaurant_finder_catalog_definition.json"
     }
   },
   {
-    "dataModelUpdate": {
+    "version": "v0.9",
+    "updateDataModel": {
       "surfaceId": "restaurant-selection-surface",
       "path": "/data/restaurants",
-      "contents": [
+      "value": [
         {
           "name": "Restaurant A",
           "detail": "Known for wood-fired pizza.",
@@ -52,84 +54,62 @@ RESTAURANT_SELECTION_EXAMPLES = r"""
     }
   },
   {
-    "surfaceUpdate": {
+    "version": "v0.9",
+    "updateComponents": {
       "surfaceId": "restaurant-selection-surface",
       "components": [
         {
           "id": "root",
-          "component": {
-            "Card": {
-              "child": "cardContent"
-            }
-          }
+          "component": "Card",
+          "child": "cardContent"
         },
         {
           "id": "cardContent",
-          "component": {
-            "Column": {
-              "children": ["headerText", "restaurantDropdown", "buttonRow"],
-              "distribution": "start",
-              "alignment": "stretch"
-            }
-          }
+          "component": "Column",
+          "justify": "start",
+          "align": "stretch",
+          "children": ["headerText", "restaurantDropdown", "buttonRow"]
         },
         {
           "id": "headerText",
-          "component": {
-            "Text": {
-              "text": {"literalString": "Find your favorite restaurant"},
-              "usageHint": "h2"
-            }
-          }
+          "component": "Text",
+          "variant": "h2",
+          "text": "Find your favorite restaurant"
         },
         {
           "id": "restaurantDropdown",
-          "component": {
-            "MultipleChoice": {
-              "selections": {"path": "/form/restaurantSelections"},
-              "options": [
-                {"label": {"literalString": "Restaurant A"}, "value": "Restaurant A"},
-                {"label": {"literalString": "Restaurant B"}, "value": "Restaurant B"},
-                {"label": {"literalString": "Restaurant C"}, "value": "Restaurant C"}
-              ],
-              "maxAllowedSelections": 3
-            }
-          }
+          "component": "ChoicePicker",
+          "variant": "multipleSelection",
+          "value": { "path": "/form/restaurantSelections" },
+          "options": [
+            { "label": "Restaurant A", "value": "Restaurant A" },
+            { "label": "Restaurant B", "value": "Restaurant B" },
+            { "label": "Restaurant C", "value": "Restaurant C" }
+          ]
         },
         {
           "id": "buttonRow",
-          "component": {
-            "Row": {
-              "children": ["showDetailsButton"],
-              "distribution": "end"
-            }
-          }
+          "component": "Row",
+          "justify": "end",
+          "children": ["showDetailsButton"]
         },
         {
           "id": "showDetailsButton",
-          "component": {
-            "Button": {
-              "child": "showDetailsButtonText",
-              "action": {
-                "name": "selectRestaurants",
-                "context": [
-                  {
-                    "key": "selectedRestaurants",
-                    "value": {"path": "/form/restaurantSelections"}
-                  }
-                ]
+          "component": "Button",
+          "child": "showDetailsButtonText",
+          "action": {
+            "event": {
+              "name": "selectRestaurants",
+              "context": {
+                "selectedRestaurants": { "path": "/form/restaurantSelections" }
               }
             }
           }
         },
         {
           "id": "showDetailsButtonText",
-          "component": {
-            "Text": {
-              "text": {"literalString": "Show details"},
-              "usageHint": "body"
-            }
-          }
+          "component": "Text",
+          "text": "Show details"
         }
       ]
     }

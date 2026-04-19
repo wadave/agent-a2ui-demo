@@ -1,0 +1,159 @@
+[
+  {
+    "version": "v0.9",
+    "createSurface": {
+      "surfaceId": "restaurant-selection-surface",
+      "catalogId": "https://github.com/user/agent-a2ui-demo/restaurant_finder_catalog_definition.json"
+    }
+  },
+  {
+    "version": "v0.9",
+    "updateComponents": {
+      "surfaceId": "restaurant-selection-surface",
+      "components": [
+        {
+          "id": "root",
+          "component": "Column",
+          "children": ["title-heading", "item-list"]
+        },
+        {
+          "id": "title-heading",
+          "component": "Text",
+          "variant": "h2",
+          "text": { "path": "/title" }
+        },
+        {
+          "id": "item-list",
+          "component": "List",
+          "direction": "vertical",
+          "children": {
+            "componentId": "item-card-template",
+            "path": "/items"
+          }
+        },
+        {
+          "id": "item-card-template",
+          "component": "Card",
+          "child": "card-layout"
+        },
+        {
+          "id": "card-layout",
+          "component": "Column",
+          "children": [
+            "template-name",
+            "template-rating",
+            "template-detail",
+            "template-address",
+            "template-link",
+            "template-button-row"
+          ]
+        },
+        {
+          "id": "template-name",
+          "component": "Text",
+          "variant": "h3",
+          "text": { "path": "/name" }
+        },
+        {
+          "id": "template-rating",
+          "component": "Text",
+          "text": { "path": "/rating" }
+        },
+        {
+          "id": "template-detail",
+          "component": "Text",
+          "text": { "path": "/detail" }
+        },
+        {
+          "id": "template-address",
+          "component": "Text",
+          "variant": "caption",
+          "text": { "path": "/address" }
+        },
+        {
+          "id": "template-link",
+          "component": "Text",
+          "text": { "path": "/infoLink" }
+        },
+        {
+          "id": "template-button-row",
+          "component": "Row",
+          "justify": "end",
+          "children": ["show-details-button", "show-map-button"]
+        },
+        {
+          "id": "show-details-button",
+          "component": "Button",
+          "child": "show-details-text",
+          "variant": "primary",
+          "action": {
+            "event": {
+              "name": "selectRestaurants",
+              "context": {
+                "restaurantName": { "path": "/name" },
+                "address": { "path": "/address" }
+              }
+            }
+          }
+        },
+        {
+          "id": "show-details-text",
+          "component": "Text",
+          "text": "Show Details"
+        },
+        {
+          "id": "show-map-button",
+          "component": "Button",
+          "child": "show-map-text",
+          "action": {
+            "event": {
+              "name": "showOnMap",
+              "context": {
+                "restaurantName": { "path": "/name" },
+                "address": { "path": "/address" }
+              }
+            }
+          }
+        },
+        {
+          "id": "show-map-text",
+          "component": "Text",
+          "text": "Show on Map"
+        }
+      ]
+    }
+  },
+  {
+    "version": "v0.9",
+    "updateDataModel": {
+      "surfaceId": "restaurant-selection-surface",
+      "path": "/",
+      "value": {
+        "title": "Restaurants Near You",
+        "items": [
+          {
+            "name": "Restaurant A",
+            "rating": "★★★★☆",
+            "detail": "Known for wood-fired pizza.",
+            "address": "123 Main St, City, ST 00000",
+            "infoLink": "[More Info](https://maps.google.com/?cid=111)"
+          },
+          {
+            "name": "Restaurant B",
+            "rating": "★★★★★",
+            "detail": "Fresh seafood and sushi.",
+            "address": "456 Oak Ave, City, ST 00000",
+            "infoLink": "[More Info](https://maps.google.com/?cid=222)"
+          },
+          {
+            "name": "Restaurant C",
+            "rating": "★★★☆☆",
+            "detail": "Authentic Mexican cuisine.",
+            "address": "789 Elm Blvd, City, ST 00000",
+            "infoLink": "[More Info](https://maps.google.com/?cid=333)"
+          }
+        ]
+      }
+    }
+  }
+]

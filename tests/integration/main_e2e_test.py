@@ -209,12 +209,28 @@ def test_list_restaurants_a2ui_contains_surface_update(server):
         if p.get("kind") == "data"
         and p.get("metadata", {}).get("mimeType") == "application/json+a2ui"
     ]
-    surface_updates = [p for p in a2ui_parts if "surfaceUpdate" in p.get("data", {})]
-    assert surface_updates, "Expected a surfaceUpdate in A2UI data"
+    component_updates = [
+        p for p in a2ui_parts if "updateComponents" in p.get("data", {})
+    ]
+    assert component_updates, "Expected an updateComponents message in A2UI data"
+
+
+def _collect_names(value):
+    """Recursively collect every 'name' string from a v0.9 data model value."""
+    found: list[str] = []
+    if isinstance(value, dict):
+        if isinstance(value.get("name"), str):
+            found.append(value["name"])
+        for v in value.values():
+            found.extend(_collect_names(v))
+    elif isinstance(value, list):
+        for item in value:
+            found.extend(_collect_names(item))
+    return found
 
 
 def test_list_restaurants_a2ui_options(server):
-    """The dataModelUpdate should list the available restaurants."""
+    """The updateDataModel should list the available restaurants."""
     data = _send("Show me restaurants in New York", extensions=[A2UI_EXTENSION_URI])
     parts = data["result"]["artifacts"][0]["parts"]
     all_data = [
@@ -224,19 +240,14 @@ def test_list_restaurants_a2ui_options(server):
         and p.get("metadata", {}).get("mimeType") == "application/json+a2ui"
     ]
 
-    data_updates = [d for d in all_data if "dataModelUpdate" in d]
-    assert data_updates, "Expected at least one dataModelUpdate in A2UI data"
+    data_updates = [d for d in all_data if "updateDataModel" in d]
+    assert data_updates, "Expected at least one updateDataModel in A2UI data"
 
-    contents = []
+    names: list[str] = []
     for d in data_updates:
-        contents.extend(d["dataModelUpdate"].get("contents", []))
+        names.extend(_collect_names(d["updateDataModel"].get("value")))
 
-    names = [
-        item["valueString"]
-        for item in contents
-        if item.get("key", "").endswith(".name")
-    ]
-    assert names, "Expected names in contents"
+    assert names, "Expected names in updateDataModel.value"
     # The mock data names are "Han Dynasty", etc.
     assert "Han Dynasty" in names
 

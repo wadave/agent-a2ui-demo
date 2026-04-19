@@ -1,6 +1,6 @@
 # A2UI Restaurant Finder Demo
 
-An AI-powered restaurant finder agent built with Google ADK (Agent Development Kit) and the A2A (Agent-to-Agent) protocol, featuring a rich interactive UI powered by [A2UI](https://github.com/google/A2UI) v0.8 rendered with Lit web components.
+An AI-powered restaurant finder agent built with Google ADK (Agent Development Kit) and the A2A (Agent-to-Agent) protocol, featuring a rich interactive UI powered by [A2UI](https://github.com/google/A2UI) v0.9 rendered with Lit web components.
 
 ## System Description
 
@@ -8,8 +8,8 @@ This application demonstrates a full-stack AI agent architecture where:
 
 - A **Gemini-powered root agent** orchestrates multiple tools to find restaurants, get directions, and look up locations using Google Maps grounding.
 - The backend communicates via the **A2A protocol** (JSON-RPC), allowing interoperability with any A2A-compatible client.
-- The frontend renders rich, interactive UI components using the **A2UI v0.8 specification** — the agent generates structured UI blueprints (not HTML), and the Lit-based client renders them as native components.
-- A **save-then-render** pattern stores restaurant data via `dataModelUpdate` before rendering the UI via `surfaceUpdate`, enabling data reuse across conversation turns.
+- The frontend renders rich, interactive UI components using the **A2UI v0.9 specification** — the agent generates structured UI blueprints (not HTML), and the Lit-based client renders them as native components.
+- A **save-then-render** pattern stores restaurant data via `updateDataModel` before rendering the UI via `updateComponents`, enabling data reuse across conversation turns.
 - A custom **GoogleMap** component extends the A2UI catalog for the custom frontend, while **WebFrameUrl** (built-in to GE) provides Google Maps embeds via the Maps Embed API for compatibility with both GE and custom UI.
 
 ## High-Level Architecture
@@ -83,10 +83,10 @@ graph TB
         Executor -.->|"API Key"| SecretMgr
     end
 
-    subgraph "A2UI Message Flow"
+    subgraph "A2UI Message Flow (v0.9)"
         direction LR
-        BR[beginRendering] --> DMU[dataModelUpdate]
-        DMU --> SU[surfaceUpdate]
+        CS[createSurface] --> UDM[updateDataModel]
+        UDM --> UC[updateComponents]
     end
 ```
 
@@ -107,11 +107,11 @@ sequenceDiagram
     Executor->>Agent: Run with query
     Agent->>Tool: find_restaurants("5 restaurants near Google PLV LA")
     Tool-->>Agent: JSON array of restaurants
-    Agent-->>Executor: Text + A2UI JSON (beginRendering, dataModelUpdate, surfaceUpdate)
+    Agent-->>Executor: Text + A2UI JSON (createSurface, updateDataModel, updateComponents)
     Executor->>Executor: Validate A2UI schema & cache data in session
     Executor-->>A2A: A2A response (text + data parts)
     A2A-->>Frontend: Text + A2UI messages
-    Frontend->>Frontend: Render surfaces (MultipleChoice dropdown)
+    Frontend->>Frontend: Render surfaces (ChoicePicker dropdown)
     Frontend-->>User: Interactive restaurant selection UI
 
     User->>Frontend: Selects restaurants & clicks "Show details"
@@ -134,10 +134,10 @@ agent-a2ui-demo/
 │   ├── tools.py                # find_restaurants, get_directions (Google Maps grounding)
 │   ├── sub_agents.py           # maps_agent (AgentTool with GoogleMapsGroundingTool)
 │   ├── catalog_schemas/        # A2UI catalog definitions (JSON Schema)
-│   │   └── 0.8/                # v0.8 catalog with GoogleMap, WebFrameUrl, etc.
+│   │   └── 0.9/                # v0.9 catalog with GoogleMap, WebFrameUrl, etc.
 │   └── examples/               # A2UI example templates for the LLM
 │       └── restaurant_finder_catalog/
-│           └── 0.8/            # v0.8 examples (map.json, restaurant_selection.json)
+│           └── 0.9/            # v0.9 examples (map.json, restaurant_selection.json)
 ├── frontend/                   # Lit-based A2UI client
 │   ├── src/
 │   │   ├── app.ts              # Main A2UI shell with chat UI
@@ -304,7 +304,7 @@ make register-gemini-enterprise
 
 - **[Google ADK](https://google.github.io/adk-docs/)** — Agent Development Kit for building AI agents
 - **[A2A Protocol](https://a2aprotocol.ai/)** — Agent-to-Agent interoperability protocol
-- **[A2UI](https://github.com/google/A2UI)** — Agent-driven UI specification (v0.8)
+- **[A2UI](https://github.com/google/A2UI)** — Agent-driven UI specification (v0.9)
 - **[Lit](https://lit.dev/)** — Web component framework for the frontend
 - **[Gemini](https://ai.google.dev/)** — Google's LLM powering the agent
 - **[Google Maps Platform](https://developers.google.com/maps)** — Maps grounding and embed API

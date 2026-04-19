@@ -188,7 +188,7 @@ class TestA2UI:
         ]
         assert a2ui_parts, "Expected A2UI data parts in response"
 
-    def test_a2ui_has_begin_rendering(self, auth_headers):
+    def test_a2ui_has_create_surface(self, auth_headers):
         data = _send(
             "Find 3 restaurants near Google PLV office LA",
             auth_headers,
@@ -206,15 +206,15 @@ class TestA2UI:
             and p.get("metadata", {}).get("mimeType") == "application/json+a2ui"
         ]
 
-        has_begin = any("beginRendering" in d for d in a2ui_data)
-        has_surface = any("surfaceUpdate" in d for d in a2ui_data)
-        has_data_model = any("dataModelUpdate" in d for d in a2ui_data)
+        has_create = any("createSurface" in d for d in a2ui_data)
+        has_components = any("updateComponents" in d for d in a2ui_data)
+        has_data_model = any("updateDataModel" in d for d in a2ui_data)
 
-        assert has_begin, (
-            f"Missing beginRendering. Got: {[list(d.keys()) for d in a2ui_data]}"
+        assert has_create, (
+            f"Missing createSurface. Got: {[list(d.keys()) for d in a2ui_data]}"
         )
-        assert has_surface, "Missing surfaceUpdate"
-        assert has_data_model, "Missing dataModelUpdate"
+        assert has_components, "Missing updateComponents"
+        assert has_data_model, "Missing updateDataModel"
 
     def test_detail_query_no_a2ui(self, auth_headers):
         """Detail queries should return text only, even with A2UI extension."""

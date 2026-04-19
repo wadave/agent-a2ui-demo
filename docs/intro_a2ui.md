@@ -19,10 +19,10 @@ Instead of returning plain text, an agent emits a declarative JSON payload descr
 
 | Version | Status | Notes |
 |---------|--------|-------|
-| **v0.8** | Stable / Production | Used by this repo. Surfaces, components, data binding, adjacency-list model |
-| **v0.9** | Draft | Adds `createSurface` (replaces `beginRendering`), `updateComponents` (replaces `surfaceUpdate`), `updateDataModel` (replaces `dataModelUpdate`), common types schema, client-side functions |
+| **v0.8** | Legacy | Adjacency-list model with `beginRendering` / `surfaceUpdate` / `dataModelUpdate` and `literalString` / `literalNumber` wrappers |
+| **v0.9** | Stable / Production | Used by this repo. `createSurface` / `updateComponents` / `updateDataModel`; discriminator-based components (`"component": "Text"`); simplified bound values (direct literal or `{path}`); modular schema with `common_types.json` and unified `basic_catalog.json` |
 
-This repo uses **v0.8** exclusively. The a2ui library supports both versions.
+This repo uses **v0.9** exclusively. The a2ui library still supports v0.8 for backward compatibility.
 
 ---
 
@@ -58,17 +58,18 @@ The `BasicCatalog` from the a2ui library provides standard components for free. 
 
 | Component | Description |
 |---|---|
-| `Text` | Display text with `usageHint` (`h1`-`h5`, `body`, `caption`) |
-| `Image` | Display an image by URL with `fit` and `usageHint` options |
+| `Text` | Display text with `variant` (`h1`-`h5`, `body`, `caption`) |
+| `Image` | Display an image by URL with `fit` and `variant` options |
 | `Icon` | Named icon from a fixed set (e.g. `star`, `locationOn`, `search`) |
 
 **Interactive:**
 
 | Component | Description |
 |---|---|
-| `Button` | Triggers a named action; passes context key/value pairs back to agent |
-| `TextField` | Text input (`shortText`, `longText`, `date`, `number`, `obscured`) |
-| `MultipleChoice` | Checkbox or chip selection from options list |
+| `Button` | Triggers a named action; passes context key/value pairs back to agent. Style via `variant: "primary" \| "default" \| "borderless"` |
+| `TextField` | Text input (`shortText`, `longText`, `number`, `obscured`) via `variant` |
+| `ChoicePicker` | Single or multiple selection from options list (`variant: "mutuallyExclusive" \| "multipleSelection"`) — replaces v0.8 `MultipleChoice` |
+| `DateTimeInput` | Date and/or time input |
 
 ### Custom Components (this repo)
 
@@ -81,72 +82,73 @@ Custom components are defined in the catalog JSON and registered in the frontend
 
 ---
 
-## Message Types (v0.8)
+## Message Types (v0.9)
 
-Each A2UI payload is an **array** of message objects. Each message contains exactly **one** action key. Messages are processed in order:
+Each A2UI payload is an **array** of message objects. Each message must include `"version": "v0.9"` and exactly **one** action key. Messages are processed in order. The component with `id: "root"` is automatically treated as the root of the surface.
 
-### 1. `beginRendering`
+### 1. `createSurface`
 
-Initializes a new UI surface. Must come first.
+Initializes a new UI surface. Must come first. The `catalogId` declares which component catalog the agent is rendering against.
 
 ```json
 {
-  "beginRendering": {
+  "version": "v0.9",
+  "createSurface": {
     "surfaceId": "restaurant-map-view",
-    "root": "root-column"
+    "catalogId": "https://github.com/user/agent-a2ui-demo/restaurant_finder_catalog_definition.json"
   }
 }
 ```
 
-### 2. `surfaceUpdate`
+Optional fields: `theme` (e.g. `{"primaryColor": "#1a73e8"}`) and `sendDataModel` (when true, the client mirrors its full data model back on every reply).
 
-Defines or updates the component tree. Components form an adjacency list — each references children by ID.
+### 2. `updateComponents`
+
+Defines or updates the component tree. Components are **discriminator-based**: the type goes in a top-level `"component"` field instead of being a wrapping key. Exactly one component must have `id: "root"`.
 
 ```json
 {
-  "surfaceUpdate": {
+  "version": "v0.9",
+  "updateComponents": {
     "surfaceId": "restaurant-map-view",
     "components": [
       {
-        "id": "root-column",
-        "component": {
-          "Column": {
-            "children": { "explicitList": ["map-header", "map-frame"] }
-          }
-        }
+        "id": "root",
+        "component": "Column",
+        "children": ["map-header", "map-frame"]
       },
       {
         "id": "map-header",
-        "component": {
-          "Text": { "text": { "literalString": "Restaurant Location" }, "usageHint": "h2" }
-        }
+        "component": "Text",
+        "variant": "h2",
+        "text": "Restaurant Location"
       },
       {
         "id": "map-frame",
-        "component": {
-          "WebFrameUrl": { "url": { "literalString": "/maps/embed?mode=place&q=Han+Dynasty" } }
-        }
+        "component": "WebFrameUrl",
+        "url": "/maps/embed?mode=place&q=Han+Dynasty"
       }
     ]
   }
 }
 ```
 
-### 3. `dataModelUpdate`
+### 3. `updateDataModel`
 
-Populates the data model. Components bind to this data via `path`.
+Populates the data model with a plain JSON value. Components bind to this data via `path`.
 
 ```json
 {
-  "dataModelUpdate": {
+  "version": "v0.9",
+  "updateDataModel": {
     "surfaceId": "restaurant-selection-surface",
     "path": "/",
-    "contents": [
-      { "key": "title", "valueString": "Restaurants Near You" },
-      { "key": "items[0].name", "valueString": "Han Dynasty" },
-      { "key": "items[0].rating", "valueString": "★★★★☆" },
-      { "key": "items[0].address", "valueString": "123 Main St, City, ST 00000" }
-    ]
+    "value": {
+      "title": "Restaurants Near You",
+      "items": [
+        { "name": "Han Dynasty", "rating": "★★★★☆", "address": "123 Main St, City, ST 00000" }
+      ]
+    }
   }
 }
 ```
@@ -157,6 +159,7 @@ Removes a surface from the client.
 
 ```json
 {
+  "version": "v0.9",
   "deleteSurface": { "surfaceId": "restaurant-map-view" }
 }
 ```
@@ -165,27 +168,36 @@ Removes a surface from the client.
 
 ## Data Binding
 
-Components can reference values two ways:
+Components reference values two ways:
 
-- **Literal values** — `{ "literalString": "Hello" }` for static content
-- **Data paths** — `{ "path": "/title" }` for values populated by `dataModelUpdate`
+- **Literal values** — direct JSON: `"Hello"`, `42`, `true`, `["a", "b"]`. The v0.8 `literalString` / `literalNumber` / `literalBoolean` / `literalArray` wrappers are gone.
+- **Data paths** — `{ "path": "/title" }` for values populated by `updateDataModel`.
 
-List templates use `dataBinding` to loop over an array:
+List templates use `path` (not `dataBinding`) to loop over an array:
 
 ```json
 {
-  "List": {
-    "children": {
-      "template": {
-        "componentId": "item-card-template",
-        "dataBinding": "/items"
-      }
-    }
+  "id": "item-list",
+  "component": "List",
+  "children": {
+    "componentId": "item-card-template",
+    "path": "/items"
   }
 }
 ```
 
 Each item in `/items` becomes the local data context for the template, so `{ "path": "/name" }` resolves relative to each item.
+
+For richer string composition, v0.9 introduces the `formatString` function:
+
+```json
+{
+  "text": {
+    "call": "formatString",
+    "args": { "value": "Hello ${/username}, you have ${/messageCount} messages" }
+  }
+}
+```
 
 ---
 
@@ -309,7 +321,7 @@ The backend serves `/.well-known/agent-card.json` advertising capabilities:
   "capabilities": {
     "extensions": [{
       "uri": "https://a2ui.org/a2a-extension/a2ui",
-      "version": "0.8",
+      "version": "0.9",
       "accepts_inline_catalogs": true,
       "supported_catalog_ids": ["restaurant_finder", "basic"]
     }]
@@ -319,7 +331,7 @@ The backend serves `/.well-known/agent-card.json` advertising capabilities:
 
 ### Activation
 
-1. Frontend sends `X-A2A-Extensions: https://a2ui.org/a2a-extension/a2ui/v0.8` header
+1. Frontend sends `X-A2A-Extensions: https://a2ui.org/a2a-extension/a2ui/v0.9` header
 2. Backend calls `try_activate_a2ui_extension()` to detect the header
 3. If detected, catalog + examples are loaded into session state
 4. `SendA2uiToClientToolset` becomes active (returns `send_a2ui_json_to_client` tool)
@@ -337,12 +349,12 @@ A2UI data is returned as A2A `DataPart` objects alongside regular text parts:
           { "kind": "text", "text": "Here are the restaurants:" },
           {
             "kind": "data",
-            "data": { "beginRendering": { "surfaceId": "s1", "root": "root" } },
+            "data": { "version": "v0.9", "createSurface": { "surfaceId": "s1", "catalogId": "..." } },
             "metadata": { "mimeType": "application/json+a2ui" }
           },
           {
             "kind": "data",
-            "data": { "surfaceUpdate": { "surfaceId": "s1", "components": [...] } },
+            "data": { "version": "v0.9", "updateComponents": { "surfaceId": "s1", "components": [...] } },
             "metadata": { "mimeType": "application/json+a2ui" }
           }
         ]
@@ -378,8 +390,8 @@ config:
 flowchart LR
     subgraph CATALOG ["1 — Define Artifacts"]
         direction TB
-        S1["<b>① Catalog</b><br/><i>catalog_schemas/</i><br/><i>0.8/*.json</i><br/>JSON Schema<br/>of components"]
-        S2["<b>② Examples</b><br/><i>examples/</i><br/><i>&lt;catalog&gt;/0.8/*.json</i><br/>One file<br/>per UI pattern"]
+        S1["<b>① Catalog</b><br/><i>catalog_schemas/</i><br/><i>0.9/*.json</i><br/>JSON Schema<br/>of components"]
+        S2["<b>② Examples</b><br/><i>examples/</i><br/><i>&lt;catalog&gt;/0.9/*.json</i><br/>One file<br/>per UI pattern"]
         S1 --> S2
     end
 
@@ -462,7 +474,7 @@ flowchart TD
 
 #### Step 1. Define Your Catalog
 
-Create a catalog JSON with a `catalogId` and a `components` map. Each component is a JSON Schema:
+Create a catalog JSON with a `catalogId` and a `components` map. Each component uses the v0.9 discriminator pattern (a literal `component` const), and properties reference shared types from `common_types.json`:
 
 ```json
 {
@@ -470,16 +482,18 @@ Create a catalog JSON with a `catalogId` and a `components` map. Each component 
   "components": {
     "MyWidget": {
       "type": "object",
-      "required": ["title"],
-      "properties": {
-        "title": {
+      "allOf": [
+        { "$ref": "common_types.json#/$defs/ComponentCommon" },
+        {
           "type": "object",
           "properties": {
-            "literalString": { "type": "string" },
-            "path": { "type": "string" }
-          }
+            "component": { "const": "MyWidget" },
+            "title": { "$ref": "common_types.json#/$defs/DynamicString" }
+          },
+          "required": ["component", "title"]
         }
-      }
+      ],
+      "unevaluatedProperties": false
     }
   }
 }
@@ -487,10 +501,10 @@ Create a catalog JSON with a `catalogId` and a `components` map. Each component 
 
 #### Step 2. Create Examples
 
-Create one JSON file per UI pattern (e.g. `list.json`, `detail.json`). Each file is an array of A2UI messages showing a complete render:
+Create one JSON file per UI pattern (e.g. `list.json`, `detail.json`). Each file is an array of A2UI v0.9 messages showing a complete render:
 
 ```
-beginRendering -> surfaceUpdate -> dataModelUpdate
+createSurface -> updateComponents -> updateDataModel
 ```
 
 These examples are injected into the agent's system prompt to teach the LLM the correct output format.
@@ -503,19 +517,34 @@ from a2ui.core.schema.common_modifiers import remove_strict_validation
 from a2ui.basic_catalog.provider import BasicCatalog
 
 schema_manager = A2uiSchemaManager(
-    version="0.8",
+    version="0.9",
     catalogs=[
         CatalogConfig.from_path(
             name="my_catalog",
-            catalog_path="catalog_schemas/0.8/my_catalog_definition.json",
-            examples_path="examples/my_catalog/0.8",
+            catalog_path="catalog_schemas/0.9/my_catalog_definition.json",
+            examples_path="examples/my_catalog/0.9",
         ),
-        BasicCatalog.get_config(version="0.8"),
+        BasicCatalog.get_config(version="0.9"),
     ],
     accepts_inline_catalogs=True,
     schema_modifiers=[remove_strict_validation],
 )
 ```
+
+> **v0.9 gotcha — catalog must be self-contained for validation.**
+> The v0.9 server-to-client schema validates components against
+> `catalog.json#/$defs/anyComponent`. When `_select_catalog()` runs without
+> client capabilities (e.g. during startup-time example validation), it returns
+> `supported_catalogs[0]` *standalone* — the bundled `BasicCatalog` is not
+> auto-merged in. So if your custom catalog only declares
+> `WebFrameUrl`/`GoogleMap` and your examples reference `Text`/`Column`/etc.,
+> validation will fail with `'/$defs/anyComponent' does not exist`.
+>
+> This repo solves it with a small `_MergedBasicCatalogProvider` in
+> `app/agent.py` that loads the bundled `basic_catalog.json` and injects the
+> custom components into both `components` and `$defs.anyComponent.oneOf`
+> before returning. The result: one self-sufficient catalog that knows
+> about every component the agent can emit.
 
 #### Step 4. Generate the System Prompt
 
@@ -591,7 +620,13 @@ import * as UI from "@a2ui/lit/ui";
 UI.componentRegistry.register("WebFrameUrl", WebFrameUrl, "a2ui-webframeurl", {
   type: "object",
   properties: {
-    url: { type: "object", properties: { literalString: { type: "string" }, path: { type: "string" } } }
+    // v0.9: literal string OR { path } DataBinding (no literalString wrapper)
+    url: {
+      oneOf: [
+        { type: "string" },
+        { type: "object", properties: { path: { type: "string" } } }
+      ]
+    }
   }
 });
 ```
@@ -612,17 +647,17 @@ agent-a2ui-demo/
 │   ├── config.py                        # Environment config (GCP, model, keys)
 │   ├── session_keys.py                  # A2UI session state key constants
 │   ├── a2ui_examples.py                 # Inline A2UI examples (RESTAURANT_SELECTION_EXAMPLES)
-│   ├── a2ui_schema.py                   # A2UI v0.8 JSON schema definition
+│   ├── a2ui_schema.py                   # A2UI v0.9 JSON schema definition
 │   ├── deploy.sh                        # Manual deployment script
 │   ├── app_utils/
 │   │   ├── telemetry.py                 # OpenTelemetry / tracing setup
 │   │   └── typing.py                    # Shared type definitions
 │   ├── catalog_schemas/
-│   │   └── 0.8/
+│   │   └── 0.9/
 │   │       └── restaurant_finder_catalog_definition.json
 │   └── examples/
 │       └── restaurant_finder_catalog/
-│           └── 0.8/
+│           └── 0.9/
 │               ├── restaurant_selection.json   # List of restaurant cards
 │               ├── map.json                    # Map embed view
 │               └── directions.json             # Directions with iframe + link
@@ -636,7 +671,7 @@ agent-a2ui-demo/
 │   ├── index.html
 │   └── package.json                     # @a2ui/lit, @a2a-js/sdk, lit
 ├── lit_internal/                         # GE-internal GoogleMap component
-│   └── src/v0_8/ui/custom_components/
+│   └── src/v0_9/ui/custom_components/
 │       └── google_map/
 │           ├── google_map.ts
 │           └── index.ts
