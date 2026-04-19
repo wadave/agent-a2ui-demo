@@ -6,13 +6,13 @@ set -e
 # --- Configuration ---
 if [[ "$#" -lt 2 ]]; then
     echo "Usage: $0   [MODEL_NAME]"
-    echo "MODEL_NAME defaults to 'gemini-3.1-flash-lite-preview'."
+    echo "MODEL_NAME defaults to 'gemini-3-flash-preview'."
     exit 1
 fi
 
 PROJECT_ID=$1
 SERVICE_NAME=$2
-MODEL_NAME=${3:-"gemini-3.1-flash-lite-preview"}
+MODEL_NAME=${3:-"gemini-3-flash-preview"}
 
 # Cloud Run region (where the container runs).
 REGION="us-central1"

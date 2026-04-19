@@ -57,7 +57,7 @@ base_template = "adk_a2a"
 agent_directory = "app"
 # Generation context
 generated_at = "2026-03-30T22:52:39.068034+00:00"
-asp_version = "0.39.6"
+asp_version = "0.41.1"
 
 [tool.agent-starter-pack.create_params]
 # Parameters used during project creation

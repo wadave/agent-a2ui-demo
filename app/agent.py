@@ -107,6 +107,14 @@ If the `send_a2ui_json_to_client` tool is available to you, you MUST use it with
 2. Pass `a2ui_json` as a single compact JSON string. Do NOT split it across multiple strings or lines.
 3. Do NOT use `default_api.`, `print()`, `json.dumps()`, or any wrapper.
 4. Do NOT use `True`/`False` (Python). Use `true`/`false` (JSON).
+5. **JSON syntax MUST be strictly valid.** Specifically:
+   - Every property and array element except the last MUST be followed by a comma.
+   - No trailing commas after the last element of an object or array.
+   - Every double quote inside a string value MUST be escaped as `\\"`.
+   - Every backslash inside a string MUST be escaped as `\\\\`.
+   - No unescaped newlines or tabs inside string values.
+   - Use straight ASCII quotes `"`, never smart quotes `\u201c` `\u201d`.
+6. The whole `a2ui_json` argument is a JSON ARRAY of messages: `[{...createSurface...}, {...updateDataModel...}, {...updateComponents...}]`. Never merge multiple message types into one object.
 """
 
 WORKFLOW_DESCRIPTION = """

@@ -46,7 +46,7 @@ A2UI_EXTENSION_URI = "https://a2ui.org/a2a-extension/a2ui/v0.9"
 # ---------------------------------------------------------------------------
 # Model
 # ---------------------------------------------------------------------------
-DEFAULT_MODEL: str = os.getenv("MODEL", "gemini-3.1-flash-lite-preview")
+DEFAULT_MODEL: str = os.getenv("MODEL", "gemini-3-flash-preview")
 
 # ---------------------------------------------------------------------------
 # Agent

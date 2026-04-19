@@ -26,7 +26,7 @@ from a2ui.a2a.parts import A2UI_MIME_TYPE, create_a2ui_part
 from a2ui.adk.send_a2ui_to_client_toolset import (
     A2uiEventConverter,
 )
-from a2ui.schema.constants import A2UI_CLIENT_CAPABILITIES_KEY
+from a2ui.schema.constants import A2UI_CLIENT_CAPABILITIES_KEY, VERSION_0_9
 from google.adk.a2a.converters.request_converter import AgentRunRequest
 from google.adk.a2a.executor.a2a_agent_executor import (
     A2aAgentExecutor,
@@ -38,7 +38,7 @@ from google.adk.events.event_actions import EventActions
 from google.adk.runners import Runner
 
 from app.agent import RestaurantFinderAgent
-from app.config import get_google_maps_api_key
+from app.config import A2UI_EXTENSION_URI, get_google_maps_api_key
 from app.session_keys import A2UI_CATALOG_KEY, A2UI_ENABLED_KEY, A2UI_EXAMPLES_KEY
 
 logger = logging.getLogger(__name__)
@@ -177,6 +177,20 @@ class RestaurantFinderExecutor(A2aAgentExecutor):
         logger.info("Loading session for message %s", context.message)
 
         active_ui_version = try_activate_a2ui_extension(context, self._agent.agent_card)
+
+        # This agent is purpose-built for A2UI v0.9. If the client did not
+        # send the X-A2A-Extensions header (observed with some Gemini
+        # Enterprise requests), the toolset would otherwise stay disabled
+        # and the LLM would hallucinate `send_a2ui_json_to_client` from
+        # its system prompt. Default to v0.9 and record the activation so
+        # the response advertises it back to the client.
+        if not active_ui_version:
+            active_ui_version = VERSION_0_9
+            try:
+                context.add_activated_extension(A2UI_EXTENSION_URI)
+            except Exception:
+                logger.debug("Could not register fallback A2UI extension on context")
+
         schema_manager = self._agent.get_schema_manager(active_ui_version)
 
         session = await super()._prepare_session(context, run_request, runner)

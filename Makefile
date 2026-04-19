@@ -140,7 +140,7 @@ deploy:
 		--labels "created-by=adk" \
 		--update-build-env-vars "AGENT_VERSION=$(shell awk -F'"' '/^version = / {print $$2}' pyproject.toml || echo '0.0.0')" \
 		--update-env-vars \
-		"APP_URL=https://agent-a2ui-09-demo-$$PROJECT_NUMBER.us-central1.run.app,AGENT_URL=https://agent-a2ui-09-demo-$$PROJECT_NUMBER.us-central1.run.app,GOOGLE_CLOUD_PROJECT=$$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=true,MODEL=gemini-3.1-flash-lite-preview" \
+		"APP_URL=https://agent-a2ui-09-demo-$$PROJECT_NUMBER.us-central1.run.app,AGENT_URL=https://agent-a2ui-09-demo-$$PROJECT_NUMBER.us-central1.run.app,GOOGLE_CLOUD_PROJECT=$$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=true,MODEL=gemini-3-flash-preview" \
 		$(if $(IAP),--iap) \
 		$(if $(PORT),--port=$(PORT))
 
@@ -218,7 +218,7 @@ lint:
 register-gemini-enterprise:
 	@PROJECT_ID=$$(gcloud config get-value project 2>/dev/null) && \
 	PROJECT_NUMBER=$$(gcloud projects describe $$PROJECT_ID --format="value(projectNumber)" 2>/dev/null) && \
-	uvx agent-starter-pack@0.39.6 register-gemini-enterprise \
+	uvx agent-starter-pack@0.41.1 register-gemini-enterprise \
 		--agent-card-url="https://agent-a2ui-09-demo-$$PROJECT_NUMBER.us-central1.run.app/.well-known/agent-card.json" \
 		--deployment-target="cloud_run" \
 		--project-number="$$PROJECT_NUMBER"
