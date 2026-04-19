@@ -168,6 +168,11 @@ UI_DESCRIPTION = """
     * **Template:** Use the JSON from `---BEGIN RESTAURANT_SELECTION EXAMPLE---`.
     * Populate the `updateDataModel.value` with real restaurant data from the `find_restaurants` tool.
     * Each restaurant item should have: name, rating (★ characters), detail, address, infoLink.
+    * **Button labels MUST be copied verbatim from the example.** The two
+      per-restaurant buttons are "Detailed Information" (action
+      `selectRestaurants`) and "Show on Map" (action `showOnMap`). Do NOT
+      rename them, do NOT add a "Directions" button, and do NOT change the
+      action names.
 
 2.  **Map View:** Used when users ask to see a location on a map.
     * **Template:** Use the JSON from `---BEGIN MAP EXAMPLE---`.
@@ -288,7 +293,12 @@ class RestaurantFinderAgent:
         return self._schema_managers.get(version)
 
     def _build_schema_manager(self, version: str) -> A2uiSchemaManager:
-        custom_catalog_id = "https://github.com/user/agent-a2ui-demo/restaurant_finder_catalog_definition.json"
+        # Stamp the merged catalog with the standard A2UI basic catalog ID so
+        # renderers (Gemini Enterprise, the local Lit shell) recognize the
+        # `createSurface.catalogId` and render against their built-in basic
+        # catalog. The merge still adds our custom `WebFrameUrl`/`GoogleMap`
+        # so backend validation knows about every component the agent emits.
+        custom_catalog_id = "https://a2ui.org/specification/v0_9/basic_catalog.json"
         return A2uiSchemaManager(
             version=version,
             catalogs=[

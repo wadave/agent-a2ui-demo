@@ -3,7 +3,7 @@
     "version": "v0.9",
     "createSurface": {
       "surfaceId": "restaurant-map-view",
-      "catalogId": "https://github.com/user/agent-a2ui-demo/restaurant_finder_catalog_definition.json"
+      "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"
     }
   },
   {

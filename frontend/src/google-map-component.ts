@@ -265,14 +265,21 @@ export const GoogleMap: LitComponentApi = {
 };
 
 // ---------------------------------------------------------------------------
-// Custom catalog
+// Catalog wiring
 // ---------------------------------------------------------------------------
 
+// The backend now emits `createSurface` with the standard A2UI basic catalog
+// ID (so Gemini Enterprise renders against its built-in basic catalog).
+// Extend the local basicCatalog with our app-specific components so the
+// local Lit shell can resolve `WebFrameUrl` and `GoogleMap` on surfaces that
+// use the basic catalog ID.
+basicCatalog.components.set(WebFrameUrl.name, WebFrameUrl);
+basicCatalog.components.set(GoogleMap.name, GoogleMap);
+
 /**
- * Custom catalog: includes basic components (Column, Text, Card, …) plus the
- * app's GoogleMap and WebFrameUrl. The backend's `_MergedBasicCatalogProvider`
- * emits `createSurface` with this CATALOG_ID, so the surface's catalog must
- * resolve every component the agent might reference — both basic and custom.
+ * Legacy custom catalog kept under the old URN so any in-flight responses
+ * (or pinned older clients) that still emit the custom `catalogId` continue
+ * to render. New surfaces from the agent use the basic catalog ID above.
  */
 export const customCatalog = new Catalog<LitComponentApi>(
   CATALOG_ID,

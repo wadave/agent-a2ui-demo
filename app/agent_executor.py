@@ -163,9 +163,18 @@ class RestaurantFinderExecutor(A2aAgentExecutor):
         self._agent = agent
 
         config = A2aAgentExecutorConfig(event_converter=_MapsKeyEventConverter())
-        # Single runner — SendA2uiToClientToolset is conditionally enabled
-        # via session state (returns no tools when A2UI is not activated).
-        super().__init__(runner=self._agent.get_runner(), config=config)
+        # `use_legacy=True` forces ADK's legacy execute() path, which calls
+        # the overridden `_prepare_session` below. The newer ADK impl
+        # (`_A2aAgentExecutor` in `a2a_agent_executor_impl.py`) is opted
+        # into by clients that send the `_NEW_A2A_ADK_INTEGRATION_EXTENSION`
+        # extension (Gemini Enterprise does this), and that path bypasses
+        # `_prepare_session` entirely — so our A2UI session state never gets
+        # set and `send_a2ui_json_to_client` is missing from the toolset.
+        super().__init__(
+            runner=self._agent.get_runner(),
+            config=config,
+            use_legacy=True,
+        )
 
     @override
     async def _prepare_session(
