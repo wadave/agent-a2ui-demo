@@ -186,7 +186,7 @@ List templates use `path` (not `dataBinding`) to loop over an array:
 }
 ```
 
-Each item in `/items` becomes the local data context for the template, so `{ "path": "/name" }` resolves relative to each item.
+Each item in `/items` becomes the local data context for the template. Paths starting with `/` are **absolute** (resolved from the surface root); paths without a leading `/` are **relative** to the current context. Inside the item template, use `{ "path": "name" }` to reference the item's `name` field — `{ "path": "/name" }` would look up `name` at the surface root, not on the item.
 
 For richer string composition, v0.9 introduces the `formatString` function:
 
@@ -612,24 +612,43 @@ if active_version:
 
 #### Step 7. Register Custom Components in the Frontend
 
-For any components in your catalog that aren't in `BasicCatalog`, register them in the frontend renderer:
+Build a `Catalog` and pass it to `MessageProcessor`. Each custom component pairs a Zod schema (its API contract) with a Lit element that renders it:
 
 ```typescript
-import * as UI from "@a2ui/lit/ui";
+import { Catalog } from "@a2ui/web_core/v0_9";
+import { basicCatalog, type LitComponentApi } from "@a2ui/lit/v0_9";
+import { z } from "zod";
 
-UI.componentRegistry.register("WebFrameUrl", WebFrameUrl, "a2ui-webframeurl", {
-  type: "object",
-  properties: {
-    // v0.9: literal string OR { path } DataBinding (no literalString wrapper)
-    url: {
-      oneOf: [
-        { type: "string" },
-        { type: "object", properties: { path: { type: "string" } } }
-      ]
-    }
-  }
-});
+const WebFrameUrlSchema = z.object({ url: z.union([z.string(), z.object({ path: z.string() })]) });
+const WebFrameUrlApi = { name: "WebFrameUrl", schema: WebFrameUrlSchema };
+
+// (Lit element implementation: extend A2uiLitElement<typeof WebFrameUrlApi>,
+// register it via @customElement("a2ui-restaurant-webframeurl"), and read
+// resolved props from this.controller.props.)
+
+export const WebFrameUrl: LitComponentApi = {
+  ...WebFrameUrlApi,
+  tagName: "a2ui-restaurant-webframeurl",
+};
+
+// Mirror the backend merge: the agent emits createSurface with the custom
+// catalogId, so the surface's catalog must resolve every component the
+// agent might use — basic AND custom.
+export const customCatalog = new Catalog<LitComponentApi>(
+  CATALOG_ID,
+  [...basicCatalog.components.values(), WebFrameUrl, GoogleMap],
+  [...basicCatalog.functions.values()],
+);
+
+// In app.ts:
+new v0_9.MessageProcessor<LitComponentApi>([basicCatalog, customCatalog], actionHandler);
 ```
+
+> **Frontend mirror of the backend merge.** Because `_MergedBasicCatalogProvider`
+> stamps the merged catalog with the *custom* `catalogId`, the frontend
+> `customCatalog` must also include the basic components. Otherwise
+> `createSurface` resolves to a catalog that only knows `WebFrameUrl`/`GoogleMap`
+> and basic components like `Text`/`Column` render as `nothing`.
 
 ---
 

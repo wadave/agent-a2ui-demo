@@ -93,6 +93,25 @@ export class A2UIShell extends SignalWatcher(LitElement) {
   static styles = css`
     * { box-sizing: border-box; }
 
+    /* Material Symbols — global class doesn't cross shadow DOM boundary */
+    .g-icon {
+      font-family: "Material Symbols Outlined";
+      font-weight: normal;
+      font-style: normal;
+      font-size: 24px;
+      line-height: 1;
+      letter-spacing: normal;
+      text-transform: none;
+      display: inline-block;
+      white-space: nowrap;
+      word-wrap: normal;
+      direction: ltr;
+      -webkit-font-smoothing: antialiased;
+    }
+    .g-icon.filled-heavy {
+      font-variation-settings: "FILL" 1, "wght" 500;
+    }
+
     /* GE color tokens */
     :host {
       --ge-bg:          light-dark(#ffffff, #1e1e1e);

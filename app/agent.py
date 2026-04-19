@@ -19,23 +19,23 @@ import os
 from typing import ClassVar
 
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
-from a2ui.a2a import get_a2ui_agent_extension
-from a2ui.adk.a2a_extension.send_a2ui_to_client_toolset import (
+from a2ui.a2a.extension import get_a2ui_agent_extension
+from a2ui.adk.send_a2ui_to_client_toolset import (
     SendA2uiToClientToolset,
 )
 from a2ui.basic_catalog.provider import BasicCatalog, BundledCatalogProvider
-from a2ui.core.schema.catalog import CatalogConfig
-from a2ui.core.schema.catalog_provider import (
+from a2ui.schema.catalog import CatalogConfig
+from a2ui.schema.catalog_provider import (
     A2uiCatalogProvider,
     FileSystemCatalogProvider,
 )
-from a2ui.core.schema.common_modifiers import remove_strict_validation
-from a2ui.core.schema.constants import (
+from a2ui.schema.common_modifiers import remove_strict_validation
+from a2ui.schema.constants import (
     CATALOG_COMPONENTS_KEY,
     CATALOG_ID_KEY,
     VERSION_0_9,
 )
-from a2ui.core.schema.manager import A2uiSchemaManager
+from a2ui.schema.manager import A2uiSchemaManager
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.agents.readonly_context import ReadonlyContext
@@ -102,9 +102,9 @@ class _MergedBasicCatalogProvider(A2uiCatalogProvider):
 
 ROLE_DESCRIPTION = """
 You are a restaurant finder agent. Your goal is to help users find and explore restaurants by using the available tools.
-You MUST use the `send_a2ui_json_to_client` tool with the `a2ui_json` argument to send A2UI JSON payloads to the client for rendering rich UI.
+If the `send_a2ui_json_to_client` tool is available to you, you MUST use it with the `a2ui_json` argument to send A2UI JSON payloads to the client for rendering rich UI. If it is NOT in your available tools list, respond with helpful plain text instead.
 
-**CRITICAL — YOU MUST FOLLOW THESE RULES OR THE SYSTEM WILL BREAK:**
+**CRITICAL — when using `send_a2ui_json_to_client`, YOU MUST FOLLOW THESE RULES OR THE SYSTEM WILL BREAK:**
 1. Use the native function calling interface. Do NOT generate code (no Python, no JavaScript, no imports, no variables, no loops).
 2. Pass `a2ui_json` as a single compact JSON string. Do NOT split it across multiple strings or lines.
 3. Do NOT use `default_api.`, `print()`, `json.dumps()`, or any wrapper.

@@ -21,11 +21,12 @@ from urllib.parse import parse_qs, urlencode
 
 from a2a.server.agent_execution import RequestContext
 from a2a.types import DataPart
-from a2ui.a2a import A2UI_MIME_TYPE, try_activate_a2ui_extension
-from a2ui.adk.a2a_extension.send_a2ui_to_client_toolset import (
+from a2ui.a2a.extension import try_activate_a2ui_extension
+from a2ui.a2a.parts import A2UI_MIME_TYPE, create_a2ui_part
+from a2ui.adk.send_a2ui_to_client_toolset import (
     A2uiEventConverter,
 )
-from a2ui.core.schema.constants import A2UI_CLIENT_CAPABILITIES_KEY
+from a2ui.schema.constants import A2UI_CLIENT_CAPABILITIES_KEY
 from google.adk.a2a.converters.request_converter import AgentRunRequest
 from google.adk.a2a.executor.a2a_agent_executor import (
     A2aAgentExecutor,
@@ -44,6 +45,16 @@ logger = logging.getLogger(__name__)
 
 # Matches the /maps/embed proxy URL produced by the LLM.
 _MAPS_PROXY_RE = re.compile(r"^/maps/embed\?(.+)$")
+
+# A2UI v0.9 message types that must each travel as their own message.
+# Renderers (frontend Lit, Gemini Enterprise) reject a single message that
+# contains more than one of these keys.
+_A2UI_UPDATE_TYPES = (
+    "createSurface",
+    "deleteSurface",
+    "updateDataModel",
+    "updateComponents",
+)
 
 
 def _proxy_url_to_full_embed_url(url: str) -> str:
@@ -73,8 +84,49 @@ def _replace_proxy_urls(obj):
     return obj
 
 
+def _split_combined_a2ui_data(data: dict) -> list[dict]:
+    """Split one A2UI message containing multiple update types into separate messages.
+
+    The LLM occasionally bundles createSurface + updateComponents +
+    updateDataModel into a single object. Renderers reject this. Emit one
+    message per update type, ordered so createSurface (and deleteSurface)
+    run before updates that depend on the surface existing.
+    """
+    types_present = [t for t in _A2UI_UPDATE_TYPES if t in data]
+    if len(types_present) <= 1:
+        return [data]
+    version = data.get("version", "v0.9")
+    return [{"version": version, t: data[t]} for t in types_present]
+
+
+def _process_a2ui_parts(parts: list) -> list:
+    """Split combined A2UI parts and rewrite /maps/embed proxy URLs."""
+    new_parts = []
+    for part in parts:
+        data_part = getattr(part, "root", None)
+        is_a2ui = (
+            isinstance(data_part, DataPart)
+            and data_part.metadata
+            and data_part.metadata.get("mimeType") == A2UI_MIME_TYPE
+            and isinstance(data_part.data, dict)
+        )
+        if not is_a2ui:
+            new_parts.append(part)
+            continue
+        for msg in _split_combined_a2ui_data(data_part.data):
+            new_parts.append(create_a2ui_part(_replace_proxy_urls(msg)))
+    return new_parts
+
+
 class _MapsKeyEventConverter(A2uiEventConverter):
-    """Wraps A2uiEventConverter to inject the Maps API key into proxy URLs."""
+    """Post-processes A2A events to keep A2UI parts well-formed for any renderer.
+
+    Two responsibilities:
+      1. Split A2UI data parts that combine multiple update types into one
+         object (LLM behavior the v0.9 schema rejects).
+      2. Rewrite `/maps/embed?...` proxy URLs to full Google Maps Embed URLs
+         with the API key attached.
+    """
 
     def __call__(
         self,
@@ -93,19 +145,13 @@ class _MapsKeyEventConverter(A2uiEventConverter):
         if part_converter_func is not None:
             kwargs["part_converter_func"] = part_converter_func
         a2a_events = super().__call__(**kwargs)
-        # Post-process: replace /maps/embed URLs in A2UI data parts
         for a2a_event in a2a_events:
             message = getattr(getattr(a2a_event, "status", None), "message", None)
             if message and message.parts:
-                for part in message.parts:
-                    data_part = getattr(part, "root", None)
-                    if (
-                        isinstance(data_part, DataPart)
-                        and data_part.metadata
-                        and data_part.metadata.get("mimeType") == A2UI_MIME_TYPE
-                        and data_part.data
-                    ):
-                        data_part.data = _replace_proxy_urls(data_part.data)
+                message.parts = _process_a2ui_parts(message.parts)
+            for artifact in getattr(a2a_event, "artifacts", None) or []:
+                if artifact.parts:
+                    artifact.parts = _process_a2ui_parts(artifact.parts)
         return a2a_events
 
 

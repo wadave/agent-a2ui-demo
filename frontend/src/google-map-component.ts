@@ -18,6 +18,7 @@ import { z } from "zod";
 import {
   A2uiController,
   A2uiLitElement,
+  basicCatalog,
   type LitComponentApi,
 } from "@a2ui/lit/v0_9";
 import { Catalog } from "@a2ui/web_core/v0_9";
@@ -267,8 +268,18 @@ export const GoogleMap: LitComponentApi = {
 // Custom catalog
 // ---------------------------------------------------------------------------
 
-/** Custom catalog containing this app's WebFrameUrl + GoogleMap components. */
+/**
+ * Custom catalog: includes basic components (Column, Text, Card, …) plus the
+ * app's GoogleMap and WebFrameUrl. The backend's `_MergedBasicCatalogProvider`
+ * emits `createSurface` with this CATALOG_ID, so the surface's catalog must
+ * resolve every component the agent might reference — both basic and custom.
+ */
 export const customCatalog = new Catalog<LitComponentApi>(
   CATALOG_ID,
-  [WebFrameUrl, GoogleMap],
+  [
+    ...(basicCatalog.components.values() as Iterable<LitComponentApi>),
+    WebFrameUrl,
+    GoogleMap,
+  ],
+  [...basicCatalog.functions.values()],
 );

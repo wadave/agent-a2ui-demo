@@ -52,28 +52,28 @@
           "id": "template-name",
           "component": "Text",
           "variant": "h3",
-          "text": { "path": "/name" }
+          "text": { "path": "name" }
         },
         {
           "id": "template-rating",
           "component": "Text",
-          "text": { "path": "/rating" }
+          "text": { "path": "rating" }
         },
         {
           "id": "template-detail",
           "component": "Text",
-          "text": { "path": "/detail" }
+          "text": { "path": "detail" }
         },
         {
           "id": "template-address",
           "component": "Text",
           "variant": "caption",
-          "text": { "path": "/address" }
+          "text": { "path": "address" }
         },
         {
           "id": "template-link",
           "component": "Text",
-          "text": { "path": "/infoLink" }
+          "text": { "path": "infoLink" }
         },
         {
           "id": "template-button-row",
@@ -90,8 +90,8 @@
             "event": {
               "name": "selectRestaurants",
               "context": {
-                "restaurantName": { "path": "/name" },
-                "address": { "path": "/address" }
+                "restaurantName": { "path": "name" },
+                "address": { "path": "address" }
               }
             }
           }
@@ -109,8 +109,8 @@
             "event": {
               "name": "showOnMap",
               "context": {
-                "restaurantName": { "path": "/name" },
-                "address": { "path": "/address" }
+                "restaurantName": { "path": "name" },
+                "address": { "path": "address" }
               }
             }
           }
