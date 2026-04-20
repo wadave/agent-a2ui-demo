@@ -7,13 +7,13 @@ graph TB
     FE -->|"A2A / JSON-RPC"| BE
 
     subgraph CloudRun["Cloud Run"]
-        BE["ADK Backend"]
+        BE["ADK Backend\n(serves v0.8 + v0.9)"]
         Agent["Gemini Agent"]
         Tools["find_restaurants\nget_directions\nmaps_agent"]
 
         BE --> Agent
         Agent -->|"Tool calls"| Tools
-        Agent -->|"updateDataModel\nupdateComponents"| BE
+        Agent -->|"v0.9: updateDataModel + updateComponents\nv0.8: beginRendering + surfaceUpdate"| BE
     end
 
     BE -->|"Text + A2UI Blueprints"| FE

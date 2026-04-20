@@ -1,6 +1,6 @@
 # A2UI Restaurant Finder Demo
 
-An AI-powered restaurant finder agent built with Google ADK (Agent Development Kit) and the A2A (Agent-to-Agent) protocol, featuring a rich interactive UI powered by [A2UI](https://github.com/google/A2UI) v0.9 rendered with Lit web components.
+An AI-powered restaurant finder agent built with Google ADK (Agent Development Kit) and the A2A (Agent-to-Agent) protocol, featuring a rich interactive UI powered by [A2UI](https://github.com/google/A2UI) — serving **v0.9** to a custom Lit shell and **v0.8** to Gemini Enterprise (GE) from a single backend.
 
 ## System Description
 
@@ -8,9 +8,9 @@ This application demonstrates a full-stack AI agent architecture where:
 
 - A **Gemini-powered root agent** orchestrates multiple tools to find restaurants, get directions, and look up locations using Google Maps grounding.
 - The backend communicates via the **A2A protocol** (JSON-RPC), allowing interoperability with any A2A-compatible client.
-- The frontend renders rich, interactive UI components using the **A2UI v0.9 specification** — the agent generates structured UI blueprints (not HTML), and the Lit-based client renders them as native components.
-- A **save-then-render** pattern stores restaurant data via `updateDataModel` before rendering the UI via `updateComponents`, enabling data reuse across conversation turns.
-- A custom **GoogleMap** component extends the A2UI catalog for the custom frontend, while **WebFrameUrl** (built-in to GE) provides Google Maps embeds via the Maps Embed API for compatibility with both GE and custom UI.
+- The same backend serves **two A2UI versions** simultaneously. The active version is selected per-request from the client's `X-A2A-Extensions` header: the custom Lit shell sends `…/v0.9` and gets v0.9; Gemini Enterprise sends no A2UI header and falls back to v0.8 (which it natively renders).
+- The Lit shell uses the v0.9 **save-then-render** pattern (`updateDataModel` then `updateComponents`) for data reuse across conversation turns. The v0.8 path uses `beginRendering` + `surfaceUpdate` with inline component data.
+- Custom **WebFrameUrl** and **GoogleMap** components are defined in both v0.8 and v0.9 catalogs and shipped inline, so map and directions surfaces render natively in GE and the Lit shell using the Google Maps Embed API.
 
 ## High-Level Architecture
 
@@ -83,10 +83,17 @@ graph TB
         Executor -.->|"API Key"| SecretMgr
     end
 
-    subgraph "A2UI Message Flow (v0.9)"
-        direction LR
-        CS[createSurface] --> UDM[updateDataModel]
-        UDM --> UC[updateComponents]
+    subgraph "A2UI Message Flow"
+        direction TB
+        subgraph V09["v0.9 (Lit shell)"]
+            direction LR
+            CS[createSurface] --> UDM[updateDataModel]
+            UDM --> UC[updateComponents]
+        end
+        subgraph V08["v0.8 (Gemini Enterprise)"]
+            direction LR
+            BR[beginRendering] --> SU[surfaceUpdate]
+        end
     end
 ```
 
@@ -134,10 +141,12 @@ agent-a2ui-demo/
 │   ├── tools.py                # find_restaurants, get_directions (Google Maps grounding)
 │   ├── sub_agents.py           # maps_agent (AgentTool with GoogleMapsGroundingTool)
 │   ├── catalog_schemas/        # A2UI catalog definitions (JSON Schema)
-│   │   └── 0.9/                # v0.9 catalog with GoogleMap, WebFrameUrl, etc.
+│   │   ├── 0.8/                # v0.8 catalog with GoogleMap, WebFrameUrl, etc. (for GE)
+│   │   └── 0.9/                # v0.9 catalog with GoogleMap, WebFrameUrl, etc. (for Lit shell)
 │   └── examples/               # A2UI example templates for the LLM
 │       └── restaurant_finder_catalog/
-│           └── 0.9/            # v0.9 examples (map.json, restaurant_selection.json)
+│           ├── 0.8/            # v0.8 examples (map.json, directions.json, restaurant_selection.json)
+│           └── 0.9/            # v0.9 examples (map.json, directions.json, restaurant_selection.json)
 ├── frontend/                   # Lit-based A2UI client
 │   ├── src/
 │   │   ├── app.ts              # Main A2UI shell with chat UI
@@ -304,7 +313,7 @@ make register-gemini-enterprise
 
 - **[Google ADK](https://google.github.io/adk-docs/)** — Agent Development Kit for building AI agents
 - **[A2A Protocol](https://a2aprotocol.ai/)** — Agent-to-Agent interoperability protocol
-- **[A2UI](https://github.com/google/A2UI)** — Agent-driven UI specification (v0.9)
+- **[A2UI](https://github.com/google/A2UI)** — Agent-driven UI specification (v0.8 + v0.9)
 - **[Lit](https://lit.dev/)** — Web component framework for the frontend
 - **[Gemini](https://ai.google.dev/)** — Google's LLM powering the agent
 - **[Google Maps Platform](https://developers.google.com/maps)** — Maps grounding and embed API

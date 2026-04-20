@@ -19,10 +19,10 @@ Instead of returning plain text, an agent emits a declarative JSON payload descr
 
 | Version | Status | Notes |
 |---------|--------|-------|
-| **v0.8** | Legacy | Adjacency-list model with `beginRendering` / `surfaceUpdate` / `dataModelUpdate` and `literalString` / `literalNumber` wrappers |
-| **v0.9** | Stable / Production | Used by this repo. `createSurface` / `updateComponents` / `updateDataModel`; discriminator-based components (`"component": "Text"`); simplified bound values (direct literal or `{path}`); modular schema with `common_types.json` and unified `basic_catalog.json` |
+| **v0.8** | Stable | Adjacency-list model with `beginRendering` / `surfaceUpdate` / `dataModelUpdate` and `literalString` / `literalNumber` wrappers. Currently the version Gemini Enterprise renders. |
+| **v0.9** | Stable / Production | `createSurface` / `updateComponents` / `updateDataModel`; discriminator-based components (`"component": "Text"`); simplified bound values (direct literal or `{path}`); modular schema with `common_types.json` and unified `basic_catalog.json` |
 
-This repo uses **v0.9** exclusively. The a2ui library still supports v0.8 for backward compatibility.
+This repo serves **both** versions from one backend. The active version is selected per-request from the client's `X-A2A-Extensions` header — the custom Lit shell sends the v0.9 URI, Gemini Enterprise omits the header and the executor falls back to v0.8.
 
 ---
 
@@ -672,14 +672,20 @@ agent-a2ui-demo/
 │   │   ├── telemetry.py                 # OpenTelemetry / tracing setup
 │   │   └── typing.py                    # Shared type definitions
 │   ├── catalog_schemas/
+│   │   ├── 0.8/
+│   │   │   └── restaurant_finder_catalog_definition.json   # Custom v0.8 catalog (GE)
 │   │   └── 0.9/
-│   │       └── restaurant_finder_catalog_definition.json
+│   │       └── restaurant_finder_catalog_definition.json   # Custom v0.9 catalog (Lit shell)
 │   └── examples/
 │       └── restaurant_finder_catalog/
+│           ├── 0.8/
+│           │   ├── restaurant_selection.json   # v0.8 List of restaurant cards
+│           │   ├── map.json                    # v0.8 Map embed view
+│           │   └── directions.json             # v0.8 Directions with iframe + link
 │           └── 0.9/
-│               ├── restaurant_selection.json   # List of restaurant cards
-│               ├── map.json                    # Map embed view
-│               └── directions.json             # Directions with iframe + link
+│               ├── restaurant_selection.json   # v0.9 List of restaurant cards
+│               ├── map.json                    # v0.9 Map embed view
+│               └── directions.json             # v0.9 Directions with iframe + link
 ├── frontend/
 │   ├── src/
 │   │   ├── app.ts                       # A2UI shell (chat UI, surface renderer)

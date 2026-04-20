@@ -1,0 +1,63 @@
+[
+  {
+    "beginRendering": {
+      "surfaceId": "directions-view",
+      "root": "root-column"
+    }
+  },
+  {
+    "surfaceUpdate": {
+      "surfaceId": "directions-view",
+      "components": [
+        {
+          "id": "root-column",
+          "component": {
+            "Column": {
+              "children": {
+                "explicitList": [
+                  "directions-header",
+                  "directions-frame",
+                  "directions-link"
+                ]
+              },
+              "distribution": "start",
+              "alignment": "stretch"
+            }
+          }
+        },
+        {
+          "id": "directions-header",
+          "component": {
+            "Text": {
+              "text": {
+                "literalString": "Directions: Origin to Destination"
+              },
+              "usageHint": "h2"
+            }
+          }
+        },
+        {
+          "id": "directions-frame",
+          "component": {
+            "WebFrameUrl": {
+              "url": {
+                "literalString": "/maps/embed?mode=directions&origin=URL_ENCODED_ORIGIN&destination=URL_ENCODED_DESTINATION"
+              }
+            }
+          }
+        },
+        {
+          "id": "directions-link",
+          "component": {
+            "Text": {
+              "text": {
+                "literalString": "[View full directions on Google Maps](https://www.google.com/maps/dir/URL_ENCODED_ORIGIN/URL_ENCODED_DESTINATION)"
+              },
+              "usageHint": "body"
+            }
+          }
+        }
+      ]
+    }
+  }
+]

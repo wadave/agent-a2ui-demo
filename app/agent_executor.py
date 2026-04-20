@@ -26,7 +26,7 @@ from a2ui.a2a.parts import A2UI_MIME_TYPE, create_a2ui_part
 from a2ui.adk.send_a2ui_to_client_toolset import (
     A2uiEventConverter,
 )
-from a2ui.schema.constants import A2UI_CLIENT_CAPABILITIES_KEY, VERSION_0_9
+from a2ui.schema.constants import A2UI_CLIENT_CAPABILITIES_KEY, VERSION_0_8
 from google.adk.a2a.converters.request_converter import AgentRunRequest
 from google.adk.a2a.executor.a2a_agent_executor import (
     A2aAgentExecutor,
@@ -38,7 +38,7 @@ from google.adk.events.event_actions import EventActions
 from google.adk.runners import Runner
 
 from app.agent import RestaurantFinderAgent
-from app.config import A2UI_EXTENSION_URI, get_google_maps_api_key
+from app.config import A2UI_EXTENSION_URI_V0_8, get_google_maps_api_key
 from app.session_keys import A2UI_CATALOG_KEY, A2UI_ENABLED_KEY, A2UI_EXAMPLES_KEY
 
 logger = logging.getLogger(__name__)
@@ -46,14 +46,19 @@ logger = logging.getLogger(__name__)
 # Matches the /maps/embed proxy URL produced by the LLM.
 _MAPS_PROXY_RE = re.compile(r"^/maps/embed\?(.+)$")
 
-# A2UI v0.9 message types that must each travel as their own message.
+# A2UI message types that must each travel as their own message.
 # Renderers (frontend Lit, Gemini Enterprise) reject a single message that
-# contains more than one of these keys.
+# contains more than one of these keys. Covers both v0.8 and v0.9 type names.
 _A2UI_UPDATE_TYPES = (
+    # v0.9
     "createSurface",
     "deleteSurface",
     "updateDataModel",
     "updateComponents",
+    # v0.8
+    "beginRendering",
+    "surfaceUpdate",
+    "dataModelUpdate",
 )
 
 
@@ -95,8 +100,11 @@ def _split_combined_a2ui_data(data: dict) -> list[dict]:
     types_present = [t for t in _A2UI_UPDATE_TYPES if t in data]
     if len(types_present) <= 1:
         return [data]
-    version = data.get("version", "v0.9")
-    return [{"version": version, t: data[t]} for t in types_present]
+    # Preserve the original `version` field only if the source had one.
+    # v0.9 messages carry `"version": "v0.9"`; v0.8 messages have no
+    # version field, so synthesizing one would fail v0.8 schema validation.
+    base = {"version": data["version"]} if "version" in data else {}
+    return [{**base, t: data[t]} for t in types_present]
 
 
 def _process_a2ui_parts(parts: list) -> list:
@@ -187,16 +195,17 @@ class RestaurantFinderExecutor(A2aAgentExecutor):
 
         active_ui_version = try_activate_a2ui_extension(context, self._agent.agent_card)
 
-        # This agent is purpose-built for A2UI v0.9. If the client did not
-        # send the X-A2A-Extensions header (observed with some Gemini
-        # Enterprise requests), the toolset would otherwise stay disabled
-        # and the LLM would hallucinate `send_a2ui_json_to_client` from
-        # its system prompt. Default to v0.9 and record the activation so
-        # the response advertises it back to the client.
+        # The agent supports both A2UI v0.8 (Gemini Enterprise) and v0.9
+        # (custom Lit shell). When the client omits the X-A2A-Extensions
+        # header the toolset would otherwise stay disabled and the LLM
+        # would hallucinate `send_a2ui_json_to_client` from its system
+        # prompt. Gemini Enterprise sends no A2UI header but only renders
+        # v0.8, so default to v0.8. The Lit shell explicitly sends the
+        # v0.9 extension header and is unaffected.
         if not active_ui_version:
-            active_ui_version = VERSION_0_9
+            active_ui_version = VERSION_0_8
             try:
-                context.add_activated_extension(A2UI_EXTENSION_URI)
+                context.add_activated_extension(A2UI_EXTENSION_URI_V0_8)
             except Exception:
                 logger.debug("Could not register fallback A2UI extension on context")
 

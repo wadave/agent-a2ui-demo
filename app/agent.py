@@ -33,6 +33,7 @@ from a2ui.schema.common_modifiers import remove_strict_validation
 from a2ui.schema.constants import (
     CATALOG_COMPONENTS_KEY,
     CATALOG_ID_KEY,
+    VERSION_0_8,
     VERSION_0_9,
 )
 from a2ui.schema.manager import A2uiSchemaManager
@@ -57,6 +58,9 @@ logger = logging.getLogger(__name__)
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CATALOG_DEFINITION_JSON = os.path.join(
     _APP_DIR, "catalog_schemas", "0.9", "restaurant_finder_catalog_definition.json"
+)
+CATALOG_DEFINITION_JSON_V0_8 = os.path.join(
+    _APP_DIR, "catalog_schemas", "0.8", "restaurant_finder_catalog_definition.json"
 )
 
 
@@ -114,7 +118,7 @@ If the `send_a2ui_json_to_client` tool is available to you, you MUST use it with
    - Every backslash inside a string MUST be escaped as `\\\\`.
    - No unescaped newlines or tabs inside string values.
    - Use straight ASCII quotes `"`, never smart quotes `\u201c` `\u201d`.
-6. The whole `a2ui_json` argument is a JSON ARRAY of messages: `[{...createSurface...}, {...updateDataModel...}, {...updateComponents...}]`. Never merge multiple message types into one object.
+6. The whole `a2ui_json` argument is a JSON ARRAY of A2UI messages as shown in the catalog examples. Never merge multiple message types into one object.
 7. **Always emit a short plain-text intro alongside the tool call**, e.g. "Here are 5 restaurants near Google Playa Vista:" or "Showing the map for Urban Plates:". The text and the tool call are part of the same response. The text serves as a graceful fallback for clients that cannot render rich A2UI; do NOT skip it.
 """
 
@@ -130,22 +134,22 @@ Your task is to analyze the user's request, fetch the necessary data, select the
 2.  **Fetch Data:** Select and use the appropriate tool.
     * Use **`find_restaurants`** for searching restaurants by query. Always pass the complete location context.
     * Use **`get_directions`** for driving directions between two locations.
-    * For **Map View**: you do NOT need to call any tool. Use the restaurant's address from the conversation context or cached data to estimate lat/lng coordinates, then render the GoogleMap component directly.
+    * For **Map View**: you do NOT need to call any tool. Use the restaurant's name and address from the conversation context to build the `WebFrameUrl` URL directly.
     * **Quality Check**: After calling `find_restaurants`, inspect the JSON output. Every restaurant MUST have a valid rating (stars) and a non-empty description. If any restaurant only has an address, do NOT display it. Instead, call `find_restaurants` again to find alternative restaurants that have complete details.
 
 3.  **Select Example:** Based on the intent, choose the correct example.
     * **Restaurant List** -> Use `---BEGIN RESTAURANT_SELECTION EXAMPLE---`.
-    * **Map View** -> Use `---BEGIN MAP EXAMPLE---`. You MUST use the `send_a2ui_json_to_client` tool with a GoogleMap component. Never respond with just a text link for map requests.
-    * **Directions** -> Use `---BEGIN DIRECTIONS EXAMPLE---` with a WebFrameUrl component showing the route.
+    * **Map View** -> Use `---BEGIN MAP EXAMPLE---`. You MUST use the `send_a2ui_json_to_client` tool. Never respond with just plain text for map requests.
+    * **Directions** -> Use `---BEGIN DIRECTIONS EXAMPLE---`.
     * **Restaurant Details** -> Respond with text only (no A2UI JSON).
 
 4.  **Construct the JSON Payload:**
-    * Use the chosen example as the base value for the `a2ui_json` argument.
+    * Use the chosen example as the base value for the `a2ui_json` argument. Follow the example format exactly — message type names, component structure, and field names must match the example.
     * **Generate a new `surfaceId`** for each request.
     * **Update the title** and data to reflect the actual query and tool results.
-    * For restaurant lists: populate `updateDataModel.value` with restaurant data from `find_restaurants` (a plain JSON object — no `valueString` wrappers).
-    * For maps and directions: use the `WebFrameUrl` component with the URL format described in the **Key Components & Examples** section below.
-    * Every message MUST include `"version": "v0.9"` at the top level.
+    * For restaurant lists: populate each restaurant's fields with data from `find_restaurants`, following the format shown in the example exactly.
+    * For maps and directions: use the `WebFrameUrl` component with the backend maps proxy URL. The URL must be a `literalString` and must NOT include any API key — the backend adds it automatically.
+    * **CRITICAL — `catalogId`**: Copy the `catalogId` value **verbatim** from the example. Never substitute the agent name, a short string, or any other invented value. Do NOT add `theme`, `styles`, or any field not present in the example.
     * If you get an error in the tool response, apologize and ask the user to try again.
 
 5.  **Call the Tool:** Call `send_a2ui_json_to_client` with the fully constructed `a2ui_json` payload. The `a2ui_json` argument MUST be a single compact JSON string with NO newlines and NO indentation. Use native function calling — do NOT write code.
@@ -154,7 +158,8 @@ Your task is to analyze the user's request, fetch the necessary data, select the
 **IMPORTANT RULES:**
 - When the user asks for restaurant details, respond with **text only** in Markdown format. Do NOT call the A2UI tool.
 - For found restaurants (e.g. from buttons like 'Show on map'), use `send_a2ui_json_to_client` directly with the name and address you already have. Do NOT re-fetch the restaurant.
-- When the user asks for directions, call `get_directions` to resolve addresses, then use `send_a2ui_json_to_client` with a WebFrameUrl showing the route. Also include a Text component with a clickable link: "[View full directions on Google Maps](directions_url)".
+- **Action button clicks**: If the user message starts with `Selected:` (e.g. `Selected: showOnMap`, `Selected: selectRestaurants`), the user clicked an A2UI button. You MUST respond by calling `send_a2ui_json_to_client` with the appropriate example — NEVER with text only. The restaurant name and address are in the action context; reuse them.
+- When the user asks for directions, call `get_directions` to resolve addresses, then use `send_a2ui_json_to_client` with a `WebFrameUrl` showing the route. Also include a Text component with a clickable link: "[View full directions on Google Maps](directions_url)".
 - For restaurant lists, map views, and directions, you MUST use the A2UI tool.
 - **Use Conversation History**: If the user refers to a location or restaurant mentioned previously (like "Urban Plates"), you MUST check the conversation history for its address. Do NOT ask the user for the address or search for it if it was already provided in the chat.
 - **Resolve Abbreviations**: Expand common abbreviations like "PLV" or "Plv" to "Playa Vista" when searching or getting directions to ensure robust queries.
@@ -167,7 +172,7 @@ UI_DESCRIPTION = """
 
 1.  **Restaurant List:** Used when users ask to find/browse restaurants.
     * **Template:** Use the JSON from `---BEGIN RESTAURANT_SELECTION EXAMPLE---`.
-    * Populate the `updateDataModel.value` with real restaurant data from the `find_restaurants` tool.
+    * Populate the example with real restaurant data from the `find_restaurants` tool, following the example's structure exactly.
     * Each restaurant item should have: name, rating (★ characters), detail, address, infoLink.
     * **Button labels MUST be copied verbatim from the example.** The two
       per-restaurant buttons are "Detailed Information" (action
@@ -177,17 +182,15 @@ UI_DESCRIPTION = """
 
 2.  **Map View:** Used when users ask to see a location on a map.
     * **Template:** Use the JSON from `---BEGIN MAP EXAMPLE---`.
-    * Use the `WebFrameUrl` component with the backend maps proxy URL.
-    * URL format: `/maps/embed?mode=place&q=URL_ENCODED_NAME_AND_ADDRESS`
-    * The URL is a plain string (v0.9 simplified bound values). Do NOT include any API key — the backend adds it automatically.
+    * Use the `WebFrameUrl` component with URL `/maps/embed?mode=place&q=URL_ENCODED_NAME_AND_ADDRESS`.
+    * The URL must be a `literalString`. Do NOT include any API key — the backend adds it automatically.
     * Always call `send_a2ui_json_to_client` with a WebFrameUrl component. NEVER respond with just a text link.
 
 3.  **Directions:** Used when users ask for routes or directions between two locations.
     * **Template:** Use the JSON from `---BEGIN DIRECTIONS EXAMPLE---`.
     * Call `get_directions` first to resolve origin and destination addresses.
-    * Use the `WebFrameUrl` component with the backend maps proxy URL.
-    * URL format: `/maps/embed?mode=directions&origin=URL_ENCODED_ORIGIN&destination=URL_ENCODED_DESTINATION`
-    * The URL is a plain string (v0.9 simplified bound values). Do NOT include any API key — the backend adds it automatically.
+    * Use the `WebFrameUrl` component with URL `/maps/embed?mode=directions&origin=URL_ENCODED_ORIGIN&destination=URL_ENCODED_DESTINATION`.
+    * The URL must be a `literalString`. Do NOT include any API key — the backend adds it automatically.
     * Also include a Text component with a clickable link to the full directions.
 
 You will also use layout components like `Column`, `Row`, `Card`, `List`, `Text`, and `Button`.
@@ -204,12 +207,15 @@ _UI_KEYWORDS = {
     "navigate",
     "show on the map",
     "show it on",
+    "selected:",
 }
 
 _TOOL_CALL_REMINDER = (
     "\n\n[SYSTEM REMINDER] The user's request requires a visual UI response. "
     "You MUST call the `send_a2ui_json_to_client` tool with an `a2ui_json` "
-    "argument. Do NOT respond with text only. Call the tool NOW."
+    "argument. Do NOT respond with text only. In particular, do NOT reply "
+    "with 'Here you go:' followed by the restaurant name and address — that "
+    "is exactly the failure case. Call the tool NOW."
 )
 
 
@@ -270,9 +276,12 @@ class RestaurantFinderAgent:
         self._memory_service = InMemoryMemoryService()
         self._artifact_service = InMemoryArtifactService()
 
-        # Build schema managers for supported A2UI versions
+        # Build schema managers for both supported A2UI versions. The
+        # active version is selected per-request in the executor based on
+        # the client's X-A2A-Extensions header (v0.8 = Gemini Enterprise,
+        # v0.9 = local Lit shell).
         self._schema_managers: dict[str, A2uiSchemaManager] = {}
-        for version in [VERSION_0_9]:
+        for version in [VERSION_0_9, VERSION_0_8]:
             self._schema_managers[version] = self._build_schema_manager(version)
 
         # Single runner with SendA2uiToClientToolset (conditionally enabled
@@ -294,11 +303,33 @@ class RestaurantFinderAgent:
         return self._schema_managers.get(version)
 
     def _build_schema_manager(self, version: str) -> A2uiSchemaManager:
-        # Stamp the merged catalog with the standard A2UI basic catalog ID so
-        # renderers (Gemini Enterprise, the local Lit shell) recognize the
-        # `createSurface.catalogId` and render against their built-in basic
-        # catalog. The merge still adds our custom `WebFrameUrl`/`GoogleMap`
-        # so backend validation knows about every component the agent emits.
+        examples_path = os.path.join(
+            _APP_DIR, "examples", "restaurant_finder_catalog", version
+        )
+        if version == VERSION_0_8:
+            # v0.8: ship a custom catalog defining WebFrameUrl + GoogleMap
+            # alongside the standard components. GE renders v0.8 inline
+            # catalogs, so map/directions surfaces can use WebFrameUrl
+            # rather than fall back to text-only links.
+            return A2uiSchemaManager(
+                version=version,
+                catalogs=[
+                    CatalogConfig(
+                        name="restaurant_finder",
+                        provider=FileSystemCatalogProvider(
+                            CATALOG_DEFINITION_JSON_V0_8
+                        ),
+                        examples_path=examples_path,
+                    ),
+                    BasicCatalog.get_config(version=version),
+                ],
+                accepts_inline_catalogs=True,
+                schema_modifiers=[remove_strict_validation],
+            )
+
+        # v0.9: merge the bundled basic catalog with custom WebFrameUrl/GoogleMap components.
+        # Stamp with the standard A2UI basic catalog ID so renderers (Gemini Enterprise,
+        # the local Lit shell) recognize the createSurface.catalogId.
         custom_catalog_id = "https://a2ui.org/specification/v0_9/basic_catalog.json"
         return A2uiSchemaManager(
             version=version,
@@ -310,13 +341,9 @@ class RestaurantFinderAgent:
                         custom_catalog_path=CATALOG_DEFINITION_JSON,
                         catalog_id=custom_catalog_id,
                     ),
-                    examples_path=os.path.join(
-                        _APP_DIR, "examples", "restaurant_finder_catalog", version
-                    ),
+                    examples_path=examples_path,
                 ),
-                BasicCatalog.get_config(
-                    version=version,
-                ),
+                BasicCatalog.get_config(version=version),
             ],
             accepts_inline_catalogs=True,
             schema_modifiers=[remove_strict_validation],
@@ -338,8 +365,8 @@ class RestaurantFinderAgent:
         )
 
         return AgentCard(
-            name="Restaurant Finder Agent (A2UI v0.9)",
-            description="Restaurant Finder Agent using Google Maps with A2UI v0.9",
+            name="Restaurant Finder Agent (A2UI v0.8)",
+            description="Restaurant Finder Agent using Google Maps with A2UI v0.8",
             url=self.base_url,
             version="1.0.0",
             default_input_modes=self.SUPPORTED_CONTENT_TYPES,

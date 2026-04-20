@@ -1,0 +1,51 @@
+[
+  {
+    "beginRendering": {
+      "surfaceId": "restaurant-map-view",
+      "root": "root-column"
+    }
+  },
+  {
+    "surfaceUpdate": {
+      "surfaceId": "restaurant-map-view",
+      "components": [
+        {
+          "id": "root-column",
+          "component": {
+            "Column": {
+              "children": {
+                "explicitList": [
+                  "map-header",
+                  "map-frame"
+                ]
+              },
+              "distribution": "start",
+              "alignment": "stretch"
+            }
+          }
+        },
+        {
+          "id": "map-header",
+          "component": {
+            "Text": {
+              "text": {
+                "literalString": "Restaurant Location"
+              },
+              "usageHint": "h2"
+            }
+          }
+        },
+        {
+          "id": "map-frame",
+          "component": {
+            "WebFrameUrl": {
+              "url": {
+                "literalString": "/maps/embed?mode=place&q=Restaurant+A,+123+Main+St"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]
