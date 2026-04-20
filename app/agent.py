@@ -115,6 +115,7 @@ If the `send_a2ui_json_to_client` tool is available to you, you MUST use it with
    - No unescaped newlines or tabs inside string values.
    - Use straight ASCII quotes `"`, never smart quotes `\u201c` `\u201d`.
 6. The whole `a2ui_json` argument is a JSON ARRAY of messages: `[{...createSurface...}, {...updateDataModel...}, {...updateComponents...}]`. Never merge multiple message types into one object.
+7. **Always emit a short plain-text intro alongside the tool call**, e.g. "Here are 5 restaurants near Google Playa Vista:" or "Showing the map for Urban Plates:". The text and the tool call are part of the same response. The text serves as a graceful fallback for clients that cannot render rich A2UI; do NOT skip it.
 """
 
 WORKFLOW_DESCRIPTION = """
