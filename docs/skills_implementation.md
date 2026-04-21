@@ -19,17 +19,21 @@ built in `_build_llm_agent()` at `app/agent.py:399`:
 | Workspace MCP | `McpToolset(connection_params=Stdio...)` | Read-heavy Workspace queries (Drive search, Doc read, Calendar list) |
 | A2UI / domain | existing `find_restaurants`, `get_directions`, `SendA2uiToClientToolset` | Unchanged |
 
-### Routing rule (enforced in the SKILL body, not in code)
+### Routing rule (enforced in the overlay SKILL, not in code)
 
-The `gws_skill` SKILL.md tells the model:
+The vendored `gws-*` skills (CLI-shaped) and `google-*` skills (MCP-shaped)
+both describe how to act, but they assume *different* execution surfaces.
+`app/skills/restaurant-finder-overrides/SKILL.md` (defined in §3.1) sits on
+top of both and pins the contract:
 
-- **Reads → MCP** (`google-workspace.*` tools): list/search/get on Drive, Docs,
-  Calendar, Gmail.
+- **Reads → MCP** tools defined by the `google-*` skills (list/search/get on
+  Drive, Docs, Calendar, Gmail).
 - **Mutations → Python wrappers** (`create_doc`, `append_doc_text`,
-  `share_doc`): anything that writes.
+  `share_doc`). The `gws-*` skills stay loaded as API references but are
+  not invoked directly.
 
-Without this rule the model will pick whichever tool name looks closer to the
-user's phrasing and the two surfaces will fight.
+Without this overlay, the model picks whichever tool name looks closer to
+the user's phrasing and the two surfaces fight.
 
 ### Naming convention
 
@@ -61,11 +65,39 @@ PPTX generation continues to use `python-pptx` (already the convention in this
 repo). Do **not** introduce `pptxgenjs` — keep the runtime single-language for
 everything except the MCP server itself.
 
-### 2.2 Authentication
+### 2.2 Vendoring published skills
+
+Both upstream repos ship SKILL.md files; the agent loads them rather than
+re-authoring instructions from scratch.
+
+```bash
+# 1. From googleworkspace/cli — generates ~100 gws-* skills locally.
+gws generate-skills --output app/skills/workspace/
+
+# 2. From gemini-cli-extensions/workspace — vendor the directories we want.
+git clone --depth 1 https://github.com/gemini-cli-extensions/workspace /tmp/gext
+cp -R /tmp/gext/skills/google-docs    app/skills/workspace/
+cp -R /tmp/gext/skills/google-sheets  app/skills/workspace/
+cp -R /tmp/gext/skills/google-slides  app/skills/workspace/
+```
+
+Commit the result. The two skill families serve different surfaces:
+
+- `gws-*` skills (from `googleworkspace/cli`) — API enumerations that teach
+  the model the `gws <service> <resource> <method>` shape. They cross-
+  reference `gws-shared/SKILL.md`, so vendor the **whole** generated tree,
+  not individual subdirs.
+- `google-*` skills (from `gemini-cli-extensions/workspace`) — behavior
+  skills (e.g. the Docs two-step `writeText` → `formatText` workflow) that
+  drive the MCP server tools.
+
+Re-run `gws generate-skills` whenever the CLI bumps a major version.
+
+### 2.3 Authentication
 
 Two paths. **Use SA in production. Use user-OAuth only for local demos.**
 
-**A. Service account (Cloud Run, recommended)**
+#### A. Service account (Cloud Run, recommended)
 
 1. Create an SA with the Workspace API scopes you need.
 2. If acting on behalf of a user (Docs/Drive in a domain), enable
@@ -73,13 +105,15 @@ Two paths. **Use SA in production. Use user-OAuth only for local demos.**
    admin console for those scopes.
 3. Mount the key at `/secrets/workspace_sa.json` via Secret Manager.
 4. Set on the Cloud Run service:
-   ```
+
+   ```sh
    GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE=/secrets/workspace_sa.json
    GOOGLE_WORKSPACE_IMPERSONATE_USER=ops@yourdomain.com   # if DWD
    ```
+
    Both `gws` and the MCP server child process inherit these.
 
-**B. User OAuth (local dev only)**
+#### B. User OAuth (local dev only)
 
 ```bash
 gws auth login
@@ -94,34 +128,41 @@ deployment. Do not check it in; do not mount it in Cloud Run.
 
 ## 3. Code changes
 
-### 3.1 New file: `app/skills/gws/SKILL.md`
+### 3.1 Skill loading
 
-This is the substance of the Skill — without it the SkillToolset is overhead.
+The vendored `gws-*` and `google-*` skills are loaded as-is. We add **one
+small overlay skill** of our own that resolves their conflicting assumptions
+(the gws-* skills assume direct `gws` invocation; we want mutations to flow
+through the validated wrappers).
+
+`app/skills/restaurant-finder-overrides/SKILL.md`:
 
 ```markdown
 ---
-name: google_workspace
-description: Create and organize Google Docs/Sheets for restaurant recommendations.
+name: restaurant-finder-overrides
+description: Routing and naming overrides on top of the vendored gws-* and google-* Workspace skills.
 ---
 
-## When to use this skill
+# Restaurant-Finder Workspace overrides
 
-Activate when the user asks to "save", "share", "send to Docs", "create a doc",
-"export to Sheets", or otherwise persist results outside the chat.
+This overlay sits on top of:
 
-## Tool routing (strict)
+- `gws-*` skills (CLI-shaped, from googleworkspace/cli)
+- `google-*` skills (MCP-shaped, from gemini-cli-extensions/workspace)
 
-- **Read** existing Workspace content → call MCP tools prefixed
-  `google-workspace.` (e.g. `google-workspace.drive_search`,
-  `google-workspace.docs_get`).
-- **Write** new content → call the Python wrappers:
-  - `create_doc(title)` — returns `{ok, data: {doc_id, url}}`
-  - `append_doc_text(document_id, text)` — appends Markdown-flavored text
-  - `share_doc(document_id, email, role)` — `role ∈ {"reader","commenter","writer"}`
+## Tool routing (strict — overrides the vendored skills)
 
-Never invoke `gws` from a tool call directly — only via these wrappers.
+- **Reads** (list/search/get) → use the MCP tools defined by the `google-*`
+  skills.
+- **Mutations** (create/update/share) → use the Python wrappers
+  (`create_doc`, `append_doc_text`, `share_doc`). Do **not** invoke the
+  `gws` binary directly even when a `gws-*` skill suggests it; the wrappers
+  add validation, timeout, and structured error returns the raw CLI lacks.
+- The `gws-*` skills remain useful as **API references**: consult them to
+  learn what fields a request body needs, then pass that body through the
+  appropriate wrapper.
 
-## Naming & organization
+## Naming & organization (restaurant-finder specific)
 
 - Doc titles: `{YYYY-MM-DD}_{City}_Restaurant_Recommendations`
 - Place new docs in the user's Drive root unless they specify a folder.
@@ -130,8 +171,8 @@ Never invoke `gws` from a tool call directly — only via these wrappers.
 
 ## Failure handling
 
-If a wrapper returns `{"ok": false, "error": ...}`, surface a one-line apology
-and the human-readable error verbatim. Do not retry automatically.
+If a wrapper returns `{"ok": false, "error": ...}`, surface a one-line
+apology and the human-readable error verbatim. Do not retry automatically.
 ```
 
 ### 3.2 New file: `app/workspace_tools.py`
@@ -247,11 +288,14 @@ from app.workspace_tools import append_doc_text, create_doc, share_doc
 **Inside `_build_llm_agent`, before the `return LlmAgent(...)` call:**
 
 ```python
-gws_skill = load_skill_from_dir(os.path.join(_APP_DIR, "skills", "gws"))
-pptx_skill = load_skill_from_dir(os.path.join(_APP_DIR, "skills", "pptx"))
+import glob
+
+# Load every vendored SKILL.md (gws-*, google-*) plus our overlay and pptx.
+skill_dirs = sorted(os.path.dirname(p) for p in glob.glob(os.path.join(_APP_DIR, "skills", "**", "SKILL.md"), recursive=True))
+skills = [load_skill_from_dir(d) for d in skill_dirs]
 
 workspace_skills = SkillToolset(
-    skills=[gws_skill, pptx_skill],
+    skills=skills,
     additional_tools=[create_doc, append_doc_text, share_doc],
 )
 
@@ -311,7 +355,7 @@ subprocess and the spawned MCP server child.
 | Symptom | Likely cause | Handling |
 | --- | --- | --- |
 | `gws: command not found` | Image missing Node/CLI install | Build-time check in CI |
-| `401 / invalid_grant` | User-OAuth token expired in prod | Switch to SA per §2.2 |
+| `401 / invalid_grant` | User-OAuth token expired in prod | Switch to SA per §2.3 |
 | `403 insufficientPermissions` | DWD scopes not authorized | Re-authorize SA client ID in admin console |
 | MCP server exits at startup | `start.js` needs gemini-cli env | Use the standalone launcher (§3.3 caveat) |
 | Wrapper returns `{ok: false}` | doc_id wrong, quota, network | SKILL instructs model to surface error verbatim |
@@ -320,20 +364,23 @@ subprocess and the spawned MCP server child.
 
 ## 6. Test plan
 
-- **Unit (`tests/unit/test_workspace_tools.py`)**: monkeypatch `subprocess.run`
+- **Unit (`tests/unit/test_workspace_tools.py`)**: patch `subprocess.run`
   to return canned stdout/stderr; assert `create_doc`, `append_doc_text`,
   `share_doc` each produce the expected `{ok, data}` / `{ok: false, error}`
   shapes for: success, non-zero exit, timeout, non-JSON stdout.
+- **Skill load test**: assert the glob in `_build_llm_agent` discovers every
+  vendored `gws-*`, `google-*`, and the overlay SKILL.md. Catches accidental
+  deletion when re-running `gws generate-skills`.
 - **MCP boot test**: spawn the MCP server with the documented `args` + `env`
   and assert it advertises tools within 5s. Catches the standalone-vs-
   gemini-cli regression early.
 - **Integration smoke (manual, gated by `GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE`)**:
   create → append → share → delete a real doc. Skip cleanly if the env var
   is unset.
-- **Agent eval**: add one prompt to the existing eval suite — *"Save these 5
-  restaurants to a Google Doc and share it with me@example.com"* — and assert
-  exactly one `create_doc` + one `append_doc_text` + one `share_doc` call,
-  in that order.
+- **Agent eval**: add one prompt to the existing eval suite — *"Save these
+  5 restaurants to a Google Doc and share it with `me@example.com`"* — and
+  assert exactly one `create_doc` + one `append_doc_text` + one `share_doc`
+  call, in that order.
 
 ---
 
