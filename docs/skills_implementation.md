@@ -1,64 +1,92 @@
-# Technical Implementation Plan: Workspace & PPTX Skills Integration
+# Technical Implementation Plan: Workspace & PPTX Skills Integration (Revised)
 
-This document details the architectural design and step-by-step implementation plan for equipping the AI Agent with Google Workspace capabilities (via CLI and MCP) and local presentation generation.
+This document establishes the production-grade plan for integrating Workspace capabilities and presentation generation into the agent.
 
 ---
 
 ## 1. System Architecture
 
-The agent utilizes a hybrid strategy separating **Contextual Heuristics** from **Deterministic Execution**:
-
 ### A. Knowledge Layer (Skills)
-Loaded via `google.adk.tools.skill_toolset.SkillToolset`.
-- **`pptx_skill`**: (Existing) Instructions for layout, color palettes, and design QA.
-- **`gws_skill`**: (New) Instructions governing file organization and naming conventions.
+- **`pptx_skill`**: Manages layout logic, color systems, and slide constraints.
+- **`gws_skill`**: (New) Enforces strict routing rules:
+  - **Read Operations:** Use the Workspace MCP Server.
+  - **Write Operations:** Use the `gws` CLI via Python tools.
+  - **Naming Convention:** `YYYY-MM-DD_[City]_Restaurant_Recommendations`.
 
 ### B. Execution Layer (Tools)
-- **`gemini-cli-extensions/workspace`**: Provides broad, read-heavy data access via MCP.
-- **`googleworkspace/cli` (`gws`)**: Executes complex mutations via Python `subprocess`.
+- **Workspace MCP Server**: Read/List APIs.
+- **GWS CLI**: Document/Sheet/Slide mutations.
 
 ---
 
-## 2. Setup & Installation
+## 2. Infrastructure & Environment
 
-### A. Dependencies
-```bash
-npm install -g @googleworkspace/cli
-npm install -g pptxgenjs
-```
+### A. Dependencies (Dockerfile Impact)
+The base Cloud Run image must contain:
+- Node.js 18+ (for `pptxgenjs` and MCP extension)
+- Python 3.10+
+- `@googleworkspace/cli` installed globally.
 
-### B. Cloud Run Authentication (Secret Manager)
-1. **Local Export:**
-   ```bash
-   gws auth login
-   gws auth export --unmasked > workspace_creds.json
-   ```
-2. **Upload to Secret Manager:** Mount the secret to the Cloud Run instance at `/secrets/workspace_creds.json`.
+### B. Authentication (Production Pattern)
+Do not use token exports in production.
+1. **Cloud Run Service Account:** Attach a SA with Domain-Wide Delegation to the Cloud Run instance.
+2. **Environment Variable:**
+   `GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE=/secrets/sa.json`
 
 ---
 
-## 3. Code Modifications
+## 3. Implementation Details
 
-### `app/workspace_tools.py` [NEW]
-Wraps `gws` command execution:
+### A. Subprocess Hygiene & Tool Logic (`app/workspace_tools.py`)
 ```python
 import subprocess
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-def create_doc_from_recommendations(title: str, content: str):
-    cmd = ["gws", "docs", "create", "--json", json.dumps({"title": title})]
-    # Additional logic to append content...
-    return subprocess.run(cmd, capture_output=True, text=True).stdout
+def _run_gws(args: list) -> dict:
+    """Executes a GWS command with strict error checking."""
+    try:
+        result = subprocess.run(["gws"] + args, capture_output=True, text=True, check=True)
+        return {"ok": True, "data": result.stdout.strip()}
+    except subprocess.CalledProcessError as e:
+        logger.error(f"GWS Command Failed: {e.stderr}")
+        return {"ok": False, "error": e.stderr.strip()}
+
+
+def create_doc_from_recommendations(title: str) -> dict:
+    """Creates an empty doc."""
+    return _run_gws(["docs", "create", "--json", json.dumps({"title": title})])
+
+
+def append_doc_text(document_id: str, text: str) -> dict:
+    """Appends content via batchUpdate equivalent."""
+    params = {"requests": [{"insertText": {"location": {"index": 1}, "text": text}}]}
+    return _run_gws(["docs", "documents", "batchUpdate", "--params", json.dumps({"documentId": document_id}), "--json", json.dumps(params)])
 ```
 
-### `app/agent.py` [MODIFY]
+### B. Agent Configuration (`app/agent.py`)
 ```python
 from google.adk.tools.skill_toolset import SkillToolset
 from google.adk.tools.mcp_tool import McpToolset
+from mcp import StdioServerParameters
 
-workspace_mcp = McpToolset(server_params=...)
-workspace_skill_toolset = SkillToolset(skills=[gws_skill, pptx_skill], additional_tools=[create_doc_from_recommendations])
+workspace_mcp = McpToolset(
+    connection_params=StdioConnectionParams(
+        server_params=StdioServerParameters(
+            command="node",
+            args=["/opt/workspace-ext/scripts/start.js"],
+            env={"GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE": "/secrets/sa.json"},
+        )
+    )
+)
 
-root_agent = Agent(tools=[workspace_skill_toolset, workspace_mcp])
+workspace_skills = SkillToolset(
+    skills=[gws_skill, pptx_skill],
+    additional_tools=[create_doc_from_recommendations, append_doc_text],
+)
+
+root_agent = LlmAgent(tools=[workspace_skills, workspace_mcp, find_restaurants])
 ```
