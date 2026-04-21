@@ -35,6 +35,16 @@ COPY ./app ./app
 # Copy built frontend from stage 1
 COPY --from=frontend-builder /frontend/dist ./frontend/dist
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl ca-certificates gnupg \
+ && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g @googleworkspace/cli@latest \
+ && npm install -g @gemini-cli-extensions/workspace@latest
+
+
 RUN uv sync --frozen
 
 ARG COMMIT_SHA=""

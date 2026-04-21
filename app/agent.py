@@ -47,11 +47,17 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+from google.adk.skills import load_skill_from_dir
+from google.adk.tools.mcp_tool import McpToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
+from google.adk.tools.skill_toolset import SkillToolset
 from google.genai import types
+from mcp import StdioServerParameters
 
 from app.config import DEFAULT_MODEL
 from app.session_keys import A2UI_CATALOG_KEY, A2UI_ENABLED_KEY, A2UI_EXAMPLES_KEY
 from app.tools import find_restaurants, get_directions
+from app.workspace_tools import append_doc_text, create_doc, share_doc
 
 logger = logging.getLogger(__name__)
 
@@ -365,7 +371,7 @@ class RestaurantFinderAgent:
         )
 
         return AgentCard(
-            name="Restaurant Finder Agent (A2UI v0.8)",
+            name="Restaurant Finder Agent",
             description="Restaurant Finder Agent using Google Maps with A2UI v0.8",
             url=self.base_url,
             version="1.0.0",
@@ -419,6 +425,41 @@ class RestaurantFinderAgent:
             else ROLE_DESCRIPTION
         )
 
+        import glob
+
+        # Load every vendored SKILL.md (gws-*, google-*) plus our overlay and pptx.
+        skill_dirs = sorted(
+            os.path.dirname(p)
+            for p in glob.glob(
+                os.path.join(_APP_DIR, "skills", "**", "SKILL.md"), recursive=True
+            )
+        )
+        skills = [load_skill_from_dir(d) for d in skill_dirs]
+
+        workspace_skills = SkillToolset(
+            skills=skills,
+            additional_tools=[create_doc, append_doc_text, share_doc],
+        )
+
+        workspace_mcp = McpToolset(
+            connection_params=StdioConnectionParams(
+                server_params=StdioServerParameters(
+                    command="node",
+                    args=[
+                        "/usr/lib/node_modules/@gemini-cli-extensions/workspace/scripts/start.js"
+                    ],
+                    env={
+                        "GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE": os.environ.get(
+                            "GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE", ""
+                        ),
+                        "GOOGLE_WORKSPACE_IMPERSONATE_USER": os.environ.get(
+                            "GOOGLE_WORKSPACE_IMPERSONATE_USER", ""
+                        ),
+                    },
+                )
+            )
+        )
+
         return LlmAgent(
             model=model,
             name=self._agent_name,
@@ -433,6 +474,11 @@ class RestaurantFinderAgent:
                     a2ui_catalog=_get_a2ui_catalog,
                     a2ui_examples=_get_a2ui_examples,
                 ),
+                workspace_skills,
+                workspace_mcp,
+                create_doc,
+                append_doc_text,
+                share_doc,
             ],
             sub_agents=[],
         )
