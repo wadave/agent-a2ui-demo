@@ -27,6 +27,18 @@ from googleapiclient.errors import HttpError
 
 _USE_ADC = os.getenv("K_SERVICE") is not None or os.getenv("USE_ADC") == "TRUE"
 
+# Resolve presentation-skill paths relative to this file so the slide tools
+# work regardless of where the repo is checked out.
+_PRESENTATION_SKILL_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "skills",
+    "presentation-skill",
+)
+_PRESENTATION_SKILL_CLI = os.path.join(_PRESENTATION_SKILL_DIR, "scripts", "cli.py")
+_PRESENTATION_SKILL_DEFAULT_TEMPLATE = os.path.join(
+    _PRESENTATION_SKILL_DIR, "resources", "template.pptx"
+)
+
 _SCOPES = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/documents",
@@ -99,6 +111,93 @@ def _run_gws(args: list[str]) -> dict[str, Any]:
         return {"ok": False, "error": "gws command timed out"}
     except subprocess.CalledProcessError as e:
         return {"ok": False, "error": e.stderr.strip() or e.stdout.strip()}
+
+
+def gws_call(
+    service: str,
+    resource: str,
+    method: str,
+    sub_resource: str = "",
+    params: str = "",
+    json_body: str = "",
+    upload_path: str = "",
+    page_all: bool = False,
+    page_limit: int = 10,
+) -> dict[str, Any]:
+    """Invoke the Google Workspace CLI (`gws`) as a single ADK tool call.
+
+    The `gws` CLI shape is `gws <service> <resource> [sub_resource] <method>
+    [--params JSON] [--json JSON] [--upload PATH] [--page-all]`. This wrapper
+    is the ADK bridge: every `gws-*` skill that documents a shell invocation
+    should be translated into one call to this tool.
+
+    Args:
+        service: Top-level service (e.g. "docs", "sheets", "slides", "drive").
+        resource: Resource collection (e.g. "documents", "spreadsheets",
+            "presentations", "files").
+        method: Method to call (e.g. "create", "get", "batchUpdate", "list").
+        sub_resource: Optional sub-resource for nested APIs (e.g.
+            "values" for sheets.spreadsheets.values).
+        params: URL/query parameters as a JSON-encoded string (e.g.
+            ``'{"documentId":"abc"}'``). Empty string means none. JSON
+            strings rather than dicts because Gemini's tool-schema validator
+            rejects open-object types.
+        json_body: Request body as a JSON-encoded string (e.g.
+            ``'{"requests":[{"insertText":...}]}'``). Empty string means none.
+        upload_path: Local file path to upload as multipart media.
+        page_all: When true, auto-paginate list calls. Returns a list of pages.
+        page_limit: Max pages when `page_all` is true.
+
+    Returns:
+        ``{"ok": True, "data": <parsed-json>}`` on success, or
+        ``{"ok": False, "error": "<message>"}`` on failure.
+    """
+    cmd: list[str] = ["gws", service, resource]
+    if sub_resource:
+        cmd.append(sub_resource)
+    cmd.append(method)
+    if params:
+        cmd.extend(["--params", params])
+    if json_body:
+        cmd.extend(["--json", json_body])
+    if upload_path:
+        cmd.extend(["--upload", upload_path])
+    if page_all:
+        cmd.append("--page-all")
+        if page_limit and page_limit != 10:
+            cmd.extend(["--page-limit", str(page_limit)])
+
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=True, timeout=60
+        )
+    except FileNotFoundError:
+        return {
+            "ok": False,
+            "error": (
+                "gws CLI not found on PATH. Install @googleworkspace/cli "
+                "(npx @googleworkspace/cli or npm i -g @googleworkspace/cli) "
+                "and run `gws auth login` once."
+            ),
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "gws command timed out after 60s"}
+    except subprocess.CalledProcessError as e:
+        return {"ok": False, "error": (e.stderr or e.stdout or "").strip()}
+
+    stdout = result.stdout.strip()
+    if not stdout:
+        return {"ok": True, "data": None}
+    if page_all:
+        try:
+            pages = [json.loads(line) for line in stdout.splitlines() if line.strip()]
+            return {"ok": True, "data": pages}
+        except json.JSONDecodeError as e:
+            return {"ok": False, "error": f"failed to parse NDJSON page output: {e}"}
+    try:
+        return {"ok": True, "data": json.loads(stdout)}
+    except json.JSONDecodeError:
+        return {"ok": True, "data": {"raw": stdout}}
 
 
 def _get_or_create_folder_cli(folder_name: str) -> str | None:
@@ -574,10 +673,21 @@ def add_presentation_slide(
         )
 
 
+_PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+
 def upload_presentation(
     file_path: str, title: str | None = None, folder_name: str | None = None
 ) -> dict[str, Any]:
-    """Upload PPTX."""
+    """Upload a local .pptx to Drive as-is (no Google Slides conversion).
+
+    Uploading with `mimeType=application/vnd.google-apps.presentation` triggers
+    a lossy pptx → native-Slides conversion that strips custom template
+    masters, layouts, and themes — exactly what we want to preserve when the
+    deck was built from the bundled corporate template. So we upload the
+    file with its real .pptx mimetype; Drive shows it as a PowerPoint file
+    and opens it in the Slides viewer with full fidelity.
+    """
     if _USE_ADC:
         try:
             drive_service = _get_service("drive", "v3")
@@ -592,15 +702,12 @@ def upload_presentation(
             name = title or os.path.basename(file_path)
             file_metadata = {
                 "name": name,
-                "mimeType": "application/vnd.google-apps.presentation",
+                "mimeType": _PPTX_MIME,
             }
 
             from googleapiclient.http import MediaFileUpload
 
-            media = MediaFileUpload(
-                file_path,
-                mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            )
+            media = MediaFileUpload(file_path, mimetype=_PPTX_MIME)
 
             file = (
                 drive_service.files()
@@ -612,18 +719,18 @@ def upload_presentation(
                 .execute()
             )
 
-            presentation_id = file.get("id")
+            file_id = file.get("id")
 
             if folder_name:
                 folder_id = _get_or_create_folder_adc(drive_service, folder_name)
                 if folder_id:
-                    _move_file_to_folder_adc(drive_service, presentation_id, folder_id)
+                    _move_file_to_folder_adc(drive_service, file_id, folder_id)
 
             return {
                 "ok": True,
                 "data": {
-                    "presentation_id": presentation_id,
-                    "url": f"https://docs.google.com/presentation/d/{presentation_id}/edit",
+                    "file_id": file_id,
+                    "url": f"https://drive.google.com/file/d/{file_id}/view",
                 },
             }
         except HttpError as e:
@@ -640,7 +747,7 @@ def upload_presentation(
         name = title or os.path.basename(file_path)
         body = {
             "name": name,
-            "mimeType": "application/vnd.google-apps.presentation",
+            "mimeType": _PPTX_MIME,
         }
 
         res = _run_gws(
@@ -652,7 +759,7 @@ def upload_presentation(
                 json.dumps(
                     {
                         "media": file_path,
-                        "mediaType": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                        "mediaType": _PPTX_MIME,
                     }
                 ),
                 "--json",
@@ -662,17 +769,17 @@ def upload_presentation(
         if not res["ok"]:
             return res
 
-        presentation_id = res["data"].get("id")
+        file_id = res["data"].get("id")
         if folder_name:
             folder_id = _get_or_create_folder_cli(folder_name)
             if folder_id:
-                _move_file_to_folder_cli(presentation_id, folder_id)
+                _move_file_to_folder_cli(file_id, folder_id)
 
         return {
             "ok": True,
             "data": {
-                "presentation_id": presentation_id,
-                "url": f"https://docs.google.com/presentation/d/{presentation_id}/edit",
+                "file_id": file_id,
+                "url": f"https://drive.google.com/file/d/{file_id}/view",
             },
         }
 
@@ -850,11 +957,14 @@ def rearrange_presentation_slides(
     """Rearrange slides from a template into a new working presentation.
 
     Args:
-        template_path: Path to the source template .pptx file.
+        template_path: Path to the source template .pptx file. Pass an empty
+            string to use the bundled default Google corporate template.
         output_path: Path to save the working .pptx file.
         indices: List of 0-based slide indices from the template to include.
     """
-    script_path = "/usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/app/skills/presentation-skill/scripts/cli.py"
+    script_path = _PRESENTATION_SKILL_CLI
+    if not template_path:
+        template_path = _PRESENTATION_SKILL_DEFAULT_TEMPLATE
     indices_str = ",".join(map(str, indices))
     try:
         result = subprocess.run(
@@ -870,7 +980,10 @@ def rearrange_presentation_slides(
             text=True,
             check=True,
         )
-        return {"ok": True, "data": {"stdout": result.stdout}}
+        return {
+            "ok": True,
+            "data": {"stdout": result.stdout, "log": result.stderr.strip()},
+        }
     except subprocess.CalledProcessError as e:
         return {"ok": False, "error": e.stderr.strip() or e.stdout.strip()}
 
@@ -884,7 +997,7 @@ def extract_presentation_inventory(
         pptx_path: Path to the .pptx file.
         output_json_path: Path to save the extracted inventory JSON.
     """
-    script_path = "/usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/app/skills/presentation-skill/scripts/cli.py"
+    script_path = _PRESENTATION_SKILL_CLI
     try:
         result = subprocess.run(
             ["python3", script_path, "inventory", pptx_path, output_json_path],
@@ -892,7 +1005,10 @@ def extract_presentation_inventory(
             text=True,
             check=True,
         )
-        return {"ok": True, "data": {"stdout": result.stdout}}
+        return {
+            "ok": True,
+            "data": {"stdout": result.stdout, "log": result.stderr.strip()},
+        }
     except subprocess.CalledProcessError as e:
         return {"ok": False, "error": e.stderr.strip() or e.stdout.strip()}
 
@@ -919,7 +1035,7 @@ def apply_presentation_replacements_data(
         tmp_path = tmp.name
 
     try:
-        script_path = "/usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/app/skills/presentation-skill/scripts/cli.py"
+        script_path = _PRESENTATION_SKILL_CLI
         cmd = [
             "python3",
             script_path,
@@ -932,7 +1048,10 @@ def apply_presentation_replacements_data(
             cmd.append("--cleanup")
 
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        return {"ok": True, "data": {"stdout": result.stdout}}
+        return {
+            "ok": True,
+            "data": {"stdout": result.stdout, "log": result.stderr.strip()},
+        }
     except subprocess.CalledProcessError as e:
         return {"ok": False, "error": e.stderr.strip() or e.stdout.strip()}
     finally:
@@ -956,7 +1075,7 @@ def apply_presentation_replacements(
         output_pptx_path: Path to save the final .pptx file.
         cleanup: Whether to delete temporary files after completion.
     """
-    script_path = "/usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/app/skills/presentation-skill/scripts/cli.py"
+    script_path = _PRESENTATION_SKILL_CLI
     cmd = [
         "python3",
         script_path,
@@ -969,6 +1088,9 @@ def apply_presentation_replacements(
         cmd.append("--cleanup")
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        return {"ok": True, "data": {"stdout": result.stdout}}
+        return {
+            "ok": True,
+            "data": {"stdout": result.stdout, "log": result.stderr.strip()},
+        }
     except subprocess.CalledProcessError as e:
         return {"ok": False, "error": e.stderr.strip() or e.stdout.strip()}

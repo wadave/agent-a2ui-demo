@@ -107,8 +107,30 @@ def _split_combined_a2ui_data(data: dict) -> list[dict]:
     return [{**base, t: data[t]} for t in types_present]
 
 
-def _process_a2ui_parts(parts: list) -> list:
-    """Split combined A2UI parts and rewrite /maps/embed proxy URLs."""
+def _repair_catalog_id(msg: dict, valid_catalog_id: str) -> None:
+    """Overwrite a bad `createSurface.catalogId` with the session's active value.
+
+    The LLM occasionally hallucinates IDs like ``"<agent_name>:<version>"``
+    instead of copying the URL from the prompt example. Renderers reject
+    those with ``Catalog not found`` and the surface never appears. v0.8
+    ``beginRendering`` carries no catalogId so this is a v0.9-only repair.
+    """
+    create_surface = msg.get("createSurface")
+    if not isinstance(create_surface, dict):
+        return
+    actual = create_surface.get("catalogId")
+    if actual == valid_catalog_id:
+        return
+    logger.warning(
+        "Repairing invalid createSurface.catalogId %r -> %r",
+        actual,
+        valid_catalog_id,
+    )
+    create_surface["catalogId"] = valid_catalog_id
+
+
+def _process_a2ui_parts(parts: list, valid_catalog_id: str | None = None) -> list:
+    """Split combined A2UI parts, rewrite /maps/embed proxy URLs, and repair catalogIds."""
     new_parts = []
     for part in parts:
         data_part = getattr(part, "root", None)
@@ -122,18 +144,24 @@ def _process_a2ui_parts(parts: list) -> list:
             new_parts.append(part)
             continue
         for msg in _split_combined_a2ui_data(data_part.data):
-            new_parts.append(create_a2ui_part(_replace_proxy_urls(msg)))
+            msg = _replace_proxy_urls(msg)
+            if valid_catalog_id is not None:
+                _repair_catalog_id(msg, valid_catalog_id)
+            new_parts.append(create_a2ui_part(msg))
     return new_parts
 
 
 class _MapsKeyEventConverter(A2uiEventConverter):
     """Post-processes A2A events to keep A2UI parts well-formed for any renderer.
 
-    Two responsibilities:
+    Three responsibilities:
       1. Split A2UI data parts that combine multiple update types into one
          object (LLM behavior the v0.9 schema rejects).
       2. Rewrite `/maps/embed?...` proxy URLs to full Google Maps Embed URLs
          with the API key attached.
+      3. Repair `createSurface.catalogId` when the LLM substitutes the agent
+         name (or any other non-registered value) for the real catalog URL —
+         the frontend rejects unknown catalog IDs with `Catalog not found`.
     """
 
     def __call__(
@@ -153,13 +181,19 @@ class _MapsKeyEventConverter(A2uiEventConverter):
         if part_converter_func is not None:
             kwargs["part_converter_func"] = part_converter_func
         a2a_events = super().__call__(**kwargs)
+
+        catalog = invocation_context.session.state.get(A2UI_CATALOG_KEY)
+        valid_catalog_id = getattr(catalog, "catalog_id", None)
+
         for a2a_event in a2a_events:
             message = getattr(getattr(a2a_event, "status", None), "message", None)
             if message and message.parts:
-                message.parts = _process_a2ui_parts(message.parts)
+                message.parts = _process_a2ui_parts(message.parts, valid_catalog_id)
             for artifact in getattr(a2a_event, "artifacts", None) or []:
                 if artifact.parts:
-                    artifact.parts = _process_a2ui_parts(artifact.parts)
+                    artifact.parts = _process_a2ui_parts(
+                        artifact.parts, valid_catalog_id
+                    )
         return a2a_events
 
 

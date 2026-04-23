@@ -11,7 +11,7 @@ from pathlib import Path
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.dml import MSO_THEME_COLOR
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import MSO_AUTO_SIZE, PP_ALIGN
 from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Pt
 from utils import get_slide_shapes
@@ -209,22 +209,109 @@ def handle_replace(args):
     prs = Presentation(args.input)
     with open(args.replacements) as f:
         replacements = json.load(f)
+
+    # Validate every reference up front. Silent skips were the historical
+    # foot-gun: a wrong slide-N / shape-N would let the LLM ship a deck
+    # of "Lorem ipsum" template text under the impression replacement
+    # had succeeded.
+    errors: list[str] = []
+    if not replacements:
+        errors.append("replacements dict is empty — nothing to apply")
     for slide_key, shape_data in replacements.items():
-        s_idx = int(slide_key.split("-")[1])
+        try:
+            s_idx = int(slide_key.split("-")[1])
+        except (IndexError, ValueError):
+            errors.append(f"invalid slide key {slide_key!r} (expected 'slide-<N>')")
+            continue
         if s_idx >= len(prs.slides):
+            errors.append(
+                f"slide-{s_idx} out of range (deck has {len(prs.slides)} slides)"
+            )
             continue
         shapes = get_slide_shapes(prs.slides[s_idx])
         for shape_key, r_data in shape_data.items():
-            sh_idx = int(shape_key.split("-")[1])
-            if sh_idx >= len(shapes):
+            try:
+                sh_idx = int(shape_key.split("-")[1])
+            except (IndexError, ValueError):
+                errors.append(
+                    f"invalid shape key {shape_key!r} on slide-{s_idx}"
+                    " (expected 'shape-<N>')"
+                )
                 continue
+            if sh_idx >= len(shapes):
+                errors.append(
+                    f"slide-{s_idx} / {shape_key} out of range — slide has"
+                    f" {len(shapes)} shape(s) (indices 0..{len(shapes) - 1})"
+                )
+                continue
+            paragraphs = r_data.get("paragraphs", [])
+            if not paragraphs:
+                errors.append(
+                    f"slide-{s_idx} / {shape_key} has no paragraphs — would"
+                    " blank the shape. Omit the entry to preserve the"
+                    " template text, or supply at least one paragraph."
+                )
+
+    if errors:
+        msg = "Invalid replacements:\n  - " + "\n  - ".join(errors)
+        logger.error(msg)
+        raise ValueError(msg)
+
+    # Apply replacements and track coverage.
+    inventory_shape_count = 0
+    for slide in prs.slides:
+        inventory_shape_count += len(get_slide_shapes(slide))
+    applied_paragraphs = 0
+    touched_shapes = 0
+    touched_slides = set()
+    autosize_failures = 0
+    for slide_key, shape_data in replacements.items():
+        s_idx = int(slide_key.split("-")[1])
+        shapes = get_slide_shapes(prs.slides[s_idx])
+        for shape_key, r_data in shape_data.items():
+            sh_idx = int(shape_key.split("-")[1])
             tf = shapes[sh_idx].shape.text_frame
             tf.clear()
-            for i, p_data in enumerate(r_data.get("paragraphs", [])):
+            paragraphs = r_data.get("paragraphs", [])
+            for i, p_data in enumerate(paragraphs):
                 p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
                 apply_para_props(p, p_data)
+                applied_paragraphs += 1
+            # Make replaced shapes auto-shrink text to fit. Without this,
+            # any string longer than the placeholder's original capacity
+            # spills outside the frame and the deck looks broken.
+            try:
+                tf.word_wrap = True
+                tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+            except Exception:
+                autosize_failures += 1
+            touched_shapes += 1
+            touched_slides.add(s_idx)
+
     prs.save(args.output)
+    skipped_shapes = inventory_shape_count - touched_shapes
+    summary = (
+        f"Applied {applied_paragraphs} paragraph(s) across {touched_shapes}"
+        f" shape(s) on {len(touched_slides)} slide(s). {skipped_shapes} shape(s)"
+        f" left untouched — they retain their original template text."
+        f" Auto-fit (text_to_fit_shape) enabled on replaced shapes so longer"
+        f" strings shrink to stay inside the frame."
+    )
     logger.info(f"Saved: {args.output}")
+    logger.info(summary)
+    if autosize_failures:
+        logger.warning(
+            "auto-fit could not be applied on %d shape(s); long text in those"
+            " shapes may still overflow.",
+            autosize_failures,
+        )
+    if skipped_shapes > 0:
+        logger.warning(
+            "%d shape(s) still hold template placeholder text. If the deck"
+            " should NOT show 'Lorem ipsum' or other template content, add a"
+            " replacement entry for every shape in the inventory.",
+            skipped_shapes,
+        )
     # Overflow check
     prs_out = Presentation(args.output)
     overflows = []

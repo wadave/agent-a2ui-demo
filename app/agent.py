@@ -62,6 +62,7 @@ from app.workspace_tools import (
     create_doc,
     create_sheet,
     extract_presentation_inventory,
+    gws_call,
     read_doc,
     read_drive_file,
     read_local_file,
@@ -175,20 +176,12 @@ Your task is to analyze the user's request, fetch the necessary data, select the
 
 
 **IMPORTANT RULES:**
-- **Presentation Generation via Template**: When the user asks to create a presentation, slide deck, or slides:
-  - 1. Call **`rearrange_presentation_slides`** mapping your required structure to template slide indices.
-  - 2. Call **`extract_presentation_inventory`** on the working file to discover shape IDs.
-  - 3. Create a replacement mapping and execute **`apply_presentation_replacements_data`**.
-  - 4. Call **`upload_presentation`** to convert the local artifact into Google Slides.
-  - *Replacement JSON Format*:
-    ```json
-    {
-      "slide-0": {
-        "shape-0": {"paragraphs": [{"text": "Title Text", "bold": true}]},
-        "shape-1": {"paragraphs": [{"text": "Bullet 1", "bullet": true, "level": 0}, {"text": "Bullet 2", "bullet": true, "level": 0}]}
-      }
-    }
-    ```
+- **Presentation Generation (template-based, MANDATORY for new decks)**: When the user asks to create a presentation, slide deck, or slides, you MUST use the `presentation-skill` workflow — never `gws_call`, never the Slides API directly, never any other shortcut. Steps:
+  1. Call `load_skill(skill_name="presentation-skill")` — required first step. Read every step in the returned instructions before continuing.
+  2. Follow the skill's workflow exactly: `rearrange_presentation_slides` → `extract_presentation_inventory` → read the inventory with `read_local_file` → `apply_presentation_replacements_data` → `upload_presentation`.
+  3. **DO NOT use `gws_call(service="slides", method="create", ...)` to create a deck.** That produces a blank Google Slides API deck with no template content — exactly what we want to avoid. The `gws-slides` skill is for *reading and modifying existing* presentations, not creating new ones.
+  4. After `apply_presentation_replacements_data`, read the `data.log` summary. If `J shape(s) left untouched` reports `J > 0`, the deck still has template "Lorem ipsum" / "placeholder" text. Either go back and add replacement entries for the missing shapes, or refuse to upload and tell the user the deck is incomplete.
+  5. Only call `upload_presentation` once `data.log` reports `0 shape(s) left untouched`.
 
 
 
@@ -202,10 +195,26 @@ Your task is to analyze the user's request, fetch the necessary data, select the
 - For restaurant lists, map views, and directions, you MUST use the A2UI tool.
 - **Use Conversation History**: If the user refers to a location or restaurant mentioned previously (like "Urban Plates"), you MUST check the conversation history for its address. Do NOT ask the user for the address or search for it if it was already provided in the chat.
 - **Resolve Abbreviations**: Expand common abbreviations like "PLV" or "Plv" to "Playa Vista" when searching or getting directions to ensure robust queries.
-- **Workspace Documents**: If the user asks to create a Google Doc or summarize in Drive:
-  - First, call **`create_doc`** with a descriptive title.
+- **Workspace Documents (simple writes)**: If the user asks to create a Google Doc or summarize in Drive and you only need plain-text content, the convenience wrappers are the shortest path:
+  - First, call **`create_doc`** with a descriptive title (and optional `folder_name`).
   - Second, call **`append_doc_text`** with the generated content.
-  - **CRITICAL:** Do NOT try to call a tool named `write`. You MUST use `create_doc` and `append_doc_text`.
+  - Do NOT call a tool named `write` — it does not exist.
+- **Workspace API via `gws_call` (full surface)**: For anything beyond plain-text doc/sheet ops — rich Docs formatting (`batchUpdate` with `updateTextStyle`, `insertText`), Sheets formula writes, Drive search/move, **modifying existing** Slides decks (NOT creating new ones — see Presentation Generation above) — translate every documented `gws-*` skill command into one `gws_call` invocation. The pattern:
+  - `gws <service> <resource> [<sub_resource>] <method> [--params <JSON>] [--json <JSON>] [--upload <PATH>] [--page-all]`
+  - becomes
+  - `gws_call(service="<service>", resource="<resource>", sub_resource="<sub_resource or empty>", method="<method>", params="<JSON string from --params, empty if absent>", json_body="<JSON string from --json, empty if absent>", upload_path="<path from --upload, empty if absent>", page_all=<true if --page-all>)`
+  - **`params` and `json_body` are JSON-encoded strings, not dicts.** Pass `params='{"spreadsheetId":"abc"}'`, NOT `params={"spreadsheetId":"abc"}`.
+  - Examples:
+    - `gws docs documents create --json '{"title":"X"}'` → `gws_call(service="docs", resource="documents", method="create", json_body='{"title":"X"}')`
+    - `gws sheets spreadsheets values get --params '{"spreadsheetId":"abc","range":"A1:C10"}'` → `gws_call(service="sheets", resource="spreadsheets", sub_resource="values", method="get", params='{"spreadsheetId":"abc","range":"A1:C10"}')`
+    - `gws drive files list --page-all` → `gws_call(service="drive", resource="files", method="list", page_all=True)`
+  - The ADK runtime cannot run shell commands directly — `gws_call` is the only path to the `gws` CLI.
+- **Workspace artifact naming** (restaurant-finder defaults; honor user overrides). Substitute `<YYYY-MM-DD>` with today's date and `<City>` with the city you searched in:
+  - Docs: `<YYYY-MM-DD>_<City>_Restaurant_Recommendations`
+  - Sheets: `<YYYY-MM-DD>_<City>_Restaurants`
+  - Slides: `<YYYY-MM-DD>_<City>_Restaurant_Tour`
+  - Place artifacts in the user's Drive root unless they specify a folder. For multi-city trips, create one artifact and append sections — not one per restaurant.
+- **Tool error handling**: Every workspace tool returns `{"ok": True, "data": ...}` or `{"ok": False, "error": ...}`. On `ok=False`, surface a one-line apology and the human-readable `error` verbatim. Do NOT retry automatically.
 
 """
 
@@ -500,34 +509,41 @@ class RestaurantFinderAgent:
             else ROLE_DESCRIPTION
         )
 
-        import glob
-
-        # Load every vendored SKILL.md (gws-*, google-*) plus our overlay and pptx.
-        skill_dirs = sorted(
-            os.path.dirname(p)
-            for p in glob.glob(
-                os.path.join(_APP_DIR, "skills", "**", "SKILL.md"), recursive=True
-            )
-        )
-        skills = [load_skill_from_dir(d) for d in skill_dirs]
+        # Explicit skill list — narrowed to the docs/sheets/slides surface
+        # the agent actually needs. The recursive glob previously loaded ~95
+        # vendored skills (gmail, calendar, persona-*, recipe-*, …) that the
+        # agent advertises but cannot fulfil. The routing overlay
+        # `restaurant-finder-overrides` tells the LLM how to translate every
+        # `gws-*` skill's documented bash commands into `gws_call(...)`.
+        skill_subdirs = [
+            "presentation-skill",
+            "workspace/gws-shared",
+            "workspace/gws-drive",
+            "workspace/gws-drive-upload",
+            "workspace/gws-docs",
+            "workspace/gws-docs-write",
+            "workspace/gws-sheets",
+            "workspace/gws-sheets-read",
+            "workspace/gws-sheets-append",
+            "workspace/gws-slides",
+        ]
+        skills = [
+            load_skill_from_dir(os.path.join(_APP_DIR, "skills", sub))
+            for sub in skill_subdirs
+        ]
 
         workspace_skills = SkillToolset(
             skills=skills,
             additional_tools=[
-                create_doc,
-                append_doc_text,
-                share_doc,
-                create_sheet,
-                append_sheet_data,
+                # Tools claimed by `presentation-skill` via its
+                # `adk_additional_tools` metadata. SkillToolset only exposes
+                # these once the LLM activates the skill via load_skill(),
+                # which keeps the surface narrow until needed.
                 upload_presentation,
-                read_doc,
-                read_sheet,
-                read_presentation,
-                read_drive_file,
-                read_local_file,
                 rearrange_presentation_slides,
                 extract_presentation_inventory,
                 apply_presentation_replacements_data,
+                read_local_file,
             ],
         )
 
@@ -545,21 +561,23 @@ class RestaurantFinderAgent:
                     a2ui_catalog=_get_a2ui_catalog,
                     a2ui_examples=_get_a2ui_examples,
                 ),
-                workspace_skills,
+                # Always-on workspace tools. None of the loaded `gws-*`
+                # skills declare `adk_additional_tools`, so anything that
+                # should be available without a `load_skill` ceremony has
+                # to live here, not inside the SkillToolset. Avoid putting
+                # presentation-skill's tools here too — that would emit
+                # duplicate function declarations once the skill is loaded.
+                gws_call,
                 create_doc,
                 append_doc_text,
                 share_doc,
                 create_sheet,
                 append_sheet_data,
-                upload_presentation,
                 read_doc,
                 read_sheet,
                 read_presentation,
                 read_drive_file,
-                read_local_file,
-                rearrange_presentation_slides,
-                extract_presentation_inventory,
-                apply_presentation_replacements_data,
+                workspace_skills,
             ],
             sub_agents=[get_search_agent()],
         )
