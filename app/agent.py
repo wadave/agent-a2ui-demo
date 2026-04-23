@@ -180,6 +180,16 @@ Your task is to analyze the user's request, fetch the necessary data, select the
   - 2. Call **`extract_presentation_inventory`** on the working file to discover shape IDs.
   - 3. Create a replacement mapping and execute **`apply_presentation_replacements`**.
   - 4. Call **`upload_presentation`** to convert the local artifact into Google Slides.
+  - *Replacement JSON Format*:
+    ```json
+    {
+      "slide-0": {
+        "shape-0": {"paragraphs": [{"text": "Title Text", "bold": true}]},
+        "shape-1": {"paragraphs": [{"text": "Bullet 1", "bullet": true, "level": 0}, {"text": "Bullet 2", "bullet": true, "level": 0}]}
+      }
+    }
+    ```
+
 
 
 - **No A2UI for Workspace Tasks**: When the user asks to create or read Google Docs, Sheets, or Slides, do NOT call the `send_a2ui_json_to_client` tool. Respond with text confirmation only after calling the appropriate workspace tools.
