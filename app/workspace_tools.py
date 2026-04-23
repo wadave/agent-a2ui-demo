@@ -29,8 +29,10 @@ _USE_ADC = os.getenv("K_SERVICE") is not None or os.getenv("USE_ADC") == "TRUE"
 
 # Resolve presentation-skill paths relative to this file so the slide tools
 # work regardless of where the repo is checked out.
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(_APP_DIR)
 _PRESENTATION_SKILL_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
+    _APP_DIR,
     "skills",
     "presentation-skill",
 )
@@ -38,6 +40,28 @@ _PRESENTATION_SKILL_CLI = os.path.join(_PRESENTATION_SKILL_DIR, "scripts", "cli.
 _PRESENTATION_SKILL_DEFAULT_TEMPLATE = os.path.join(
     _PRESENTATION_SKILL_DIR, "resources", "template.pptx"
 )
+
+
+def _resolve_gws_bin() -> str:
+    """Locate the `gws` binary: PATH first, then repo-local node_modules.
+
+    Lets the wrappers work both in local dev (where `gws` is only in
+    node_modules/.bin) and in environments that install it globally.
+    Falls back to the bare name `"gws"` so subprocess raises a clear
+    FileNotFoundError if it really isn't installed anywhere.
+    """
+    import shutil
+
+    from_path = shutil.which("gws")
+    if from_path:
+        return from_path
+    candidate = os.path.join(_REPO_ROOT, "node_modules", ".bin", "gws")
+    if os.path.exists(candidate):
+        return candidate
+    return "gws"
+
+
+_GWS_BIN = _resolve_gws_bin()
 
 _SCOPES = [
     "https://www.googleapis.com/auth/drive",
@@ -96,7 +120,7 @@ def _move_file_to_folder_adc(drive_service, file_id: str, folder_id: str) -> boo
 
 def _run_gws(args: list[str]) -> dict[str, Any]:
     """Execute a gws CLI command locally."""
-    cmd = ["gws", *args]
+    cmd = [_GWS_BIN, *args]
 
     try:
         result = subprocess.run(
@@ -152,7 +176,7 @@ def gws_call(
         ``{"ok": True, "data": <parsed-json>}`` on success, or
         ``{"ok": False, "error": "<message>"}`` on failure.
     """
-    cmd: list[str] = ["gws", service, resource]
+    cmd: list[str] = [_GWS_BIN, service, resource]
     if sub_resource:
         cmd.append(sub_resource)
     cmd.append(method)
@@ -688,22 +712,22 @@ def upload_presentation(
     file with its real .pptx mimetype; Drive shows it as a PowerPoint file
     and opens it in the Slides viewer with full fidelity.
     """
+    import os
+
+    if not os.path.exists(file_path):
+        return {"ok": False, "error": f"Local file not found: {file_path}"}
+
+    # Ensure the destination keeps the .pptx extension. The LLM typically
+    # passes a bare title like "restaurants0", which would otherwise land
+    # in Drive without an extension and look broken.
+    name = title or os.path.basename(file_path)
+    if not name.lower().endswith(".pptx"):
+        name = f"{name}.pptx"
+
     if _USE_ADC:
         try:
             drive_service = _get_service("drive", "v3")
-            import os
-
-            if not os.path.exists(file_path):
-                return {
-                    "ok": False,
-                    "error": f"Local file not found: {file_path}",
-                }
-
-            name = title or os.path.basename(file_path)
-            file_metadata = {
-                "name": name,
-                "mimeType": _PPTX_MIME,
-            }
+            file_metadata = {"name": name, "mimeType": _PPTX_MIME}
 
             from googleapiclient.http import MediaFileUpload
 
@@ -711,11 +735,7 @@ def upload_presentation(
 
             file = (
                 drive_service.files()
-                .create(
-                    body=file_metadata,
-                    media_body=media,
-                    fields="id",
-                )
+                .create(body=file_metadata, media_body=media, fields="id")
                 .execute()
             )
 
@@ -736,34 +756,22 @@ def upload_presentation(
         except HttpError as e:
             return {"ok": False, "error": str(e)}
     else:
-        import os
-
-        if not os.path.exists(file_path):
-            return {
-                "ok": False,
-                "error": f"Local file not found: {file_path}",
-            }
-
-        name = title or os.path.basename(file_path)
-        body = {
-            "name": name,
-            "mimeType": _PPTX_MIME,
-        }
-
+        # The gws CLI uploads media via the dedicated --upload flag, not
+        # through --params. Earlier code passed `{"media": file_path}` in
+        # --params which the API silently ignored, producing a 0-byte
+        # placeholder.
+        body = {"name": name, "mimeType": _PPTX_MIME}
         res = _run_gws(
             [
                 "drive",
                 "files",
                 "create",
-                "--params",
-                json.dumps(
-                    {
-                        "media": file_path,
-                        "mediaType": _PPTX_MIME,
-                    }
-                ),
                 "--json",
                 json.dumps(body),
+                "--upload",
+                file_path,
+                "--upload-content-type",
+                _PPTX_MIME,
             ]
         )
         if not res["ok"]:
