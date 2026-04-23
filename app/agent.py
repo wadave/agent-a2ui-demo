@@ -58,7 +58,7 @@ from app.tools import find_restaurants, get_directions
 from app.workspace_tools import (
     append_doc_text,
     append_sheet_data,
-    apply_presentation_replacements,
+    apply_presentation_replacements_data,
     create_doc,
     create_sheet,
     extract_presentation_inventory,
@@ -178,7 +178,7 @@ Your task is to analyze the user's request, fetch the necessary data, select the
 - **Presentation Generation via Template**: When the user asks to create a presentation, slide deck, or slides:
   - 1. Call **`rearrange_presentation_slides`** mapping your required structure to template slide indices.
   - 2. Call **`extract_presentation_inventory`** on the working file to discover shape IDs.
-  - 3. Create a replacement mapping and execute **`apply_presentation_replacements`**.
+  - 3. Create a replacement mapping and execute **`apply_presentation_replacements_data`**.
   - 4. Call **`upload_presentation`** to convert the local artifact into Google Slides.
   - *Replacement JSON Format*:
     ```json
@@ -527,7 +527,7 @@ class RestaurantFinderAgent:
                 read_local_file,
                 rearrange_presentation_slides,
                 extract_presentation_inventory,
-                apply_presentation_replacements,
+                apply_presentation_replacements_data,
             ],
         )
 
@@ -559,7 +559,7 @@ class RestaurantFinderAgent:
                 read_local_file,
                 rearrange_presentation_slides,
                 extract_presentation_inventory,
-                apply_presentation_replacements,
+                apply_presentation_replacements_data,
             ],
             sub_agents=[get_search_agent()],
         )

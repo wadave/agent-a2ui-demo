@@ -1,0 +1,299 @@
+{
+  "slide-0": {
+    "shape-0": {
+      "left": 0.5,
+      "top": 0.7,
+      "width": 6.33,
+      "height": 3.71,
+      "paragraphs": [
+        {
+          "text": "Two or three",
+          "bullet": false,
+          "font_name": "Google Sans Medium",
+          "font_size": 60.0,
+          "theme_color": "DARK_1",
+          "line_spacing": 48.0
+        },
+        {
+          "text": "lined headline",
+          "bullet": false,
+          "font_name": "Google Sans Medium",
+          "font_size": 60.0,
+          "theme_color": "DARK_1",
+          "line_spacing": 48.0
+        },
+        {
+          "text": "placed here",
+          "bullet": false,
+          "font_name": "Google Sans Medium",
+          "font_size": 60.0,
+          "theme_color": "DARK_1",
+          "line_spacing": 48.0
+        },
+        {
+          "text": "Month 20XX",
+          "bullet": false,
+          "font_name": "Google Sans Text",
+          "font_size": 16.0,
+          "theme_color": "DARK_1",
+          "line_spacing": 12.8
+        }
+      ]
+    },
+    "shape-1": {
+      "left": 7.64,
+      "top": 0.61,
+      "width": 2.3,
+      "height": 0.34,
+      "paragraphs": [
+        {
+          "text": "Proprietary & Confidential",
+          "bullet": false,
+          "font_name": "Google Sans Text",
+          "font_size": 8.0,
+          "theme_color": "DARK_1"
+        }
+      ]
+    }
+  },
+  "slide-1": {
+    "shape-0": {
+      "left": 0.5,
+      "top": 0.7,
+      "width": 8.67,
+      "height": 1.38,
+      "paragraphs": [
+        {
+          "text": "Single column",
+          "bullet": false
+        }
+      ],
+      "placeholder_type": "TITLE (1)"
+    },
+    "shape-1": {
+      "left": 0.5,
+      "top": 1.7,
+      "width": 4.37,
+      "height": 3.74,
+      "paragraphs": [
+        {
+          "text": "Remember, less is more. We don’t want to overwhelm our audience with dense copy-heavy paragraphs. \u000b\u000bTry to present information in manageable, bite-sized segments. It’s better to present an idea over two slides, than to overwhelm the reader.",
+          "bullet": false,
+          "bold": true
+        },
+        {
+          "text": "When possible, use this second paragraph to make a follow-up point. Notice the width of this text column. Copy should stay within this length and these parameters.",
+          "bullet": false,
+          "space_before": 10.0
+        }
+      ],
+      "placeholder_type": "BODY (2)"
+    },
+    "shape-2": {
+      "left": 8.75,
+      "top": 5.1,
+      "width": 0.75,
+      "height": 0.43,
+      "paragraphs": [
+        {
+          "text": "‹#›",
+          "bullet": false,
+          "alignment": "RIGHT"
+        }
+      ],
+      "placeholder_type": "SLIDE_NUMBER (13)"
+    }
+  },
+  "slide-2": {
+    "shape-0": {
+      "left": 0.5,
+      "top": 0.7,
+      "width": 8.67,
+      "height": 1.38,
+      "paragraphs": [
+        {
+          "text": "Single column",
+          "bullet": false
+        }
+      ],
+      "placeholder_type": "TITLE (1)"
+    },
+    "shape-1": {
+      "left": 0.5,
+      "top": 1.7,
+      "width": 4.37,
+      "height": 3.74,
+      "paragraphs": [
+        {
+          "text": "Remember, less is more. We don’t want to overwhelm our audience with dense copy-heavy paragraphs. \u000b\u000bTry to present information in manageable, bite-sized segments. It’s better to present an idea over two slides, than to overwhelm the reader.",
+          "bullet": false,
+          "bold": true
+        },
+        {
+          "text": "When possible, use this second paragraph to make a follow-up point. Notice the width of this text column. Copy should stay within this length and these parameters.",
+          "bullet": false,
+          "space_before": 10.0
+        }
+      ],
+      "placeholder_type": "BODY (2)"
+    },
+    "shape-2": {
+      "left": 8.75,
+      "top": 5.1,
+      "width": 0.75,
+      "height": 0.43,
+      "paragraphs": [
+        {
+          "text": "‹#›",
+          "bullet": false,
+          "alignment": "RIGHT"
+        }
+      ],
+      "placeholder_type": "SLIDE_NUMBER (13)"
+    }
+  },
+  "slide-3": {
+    "shape-0": {
+      "left": 0.5,
+      "top": 0.7,
+      "width": 8.67,
+      "height": 1.38,
+      "paragraphs": [
+        {
+          "text": "Single column",
+          "bullet": false
+        }
+      ],
+      "placeholder_type": "TITLE (1)"
+    },
+    "shape-1": {
+      "left": 0.5,
+      "top": 1.7,
+      "width": 4.37,
+      "height": 3.74,
+      "paragraphs": [
+        {
+          "text": "Remember, less is more. We don’t want to overwhelm our audience with dense copy-heavy paragraphs. \u000b\u000bTry to present information in manageable, bite-sized segments. It’s better to present an idea over two slides, than to overwhelm the reader.",
+          "bullet": false,
+          "bold": true
+        },
+        {
+          "text": "When possible, use this second paragraph to make a follow-up point. Notice the width of this text column. Copy should stay within this length and these parameters.",
+          "bullet": false,
+          "space_before": 10.0
+        }
+      ],
+      "placeholder_type": "BODY (2)"
+    },
+    "shape-2": {
+      "left": 8.75,
+      "top": 5.1,
+      "width": 0.75,
+      "height": 0.43,
+      "paragraphs": [
+        {
+          "text": "‹#›",
+          "bullet": false,
+          "alignment": "RIGHT"
+        }
+      ],
+      "placeholder_type": "SLIDE_NUMBER (13)"
+    }
+  },
+  "slide-4": {
+    "shape-0": {
+      "left": 0.5,
+      "top": 0.7,
+      "width": 8.67,
+      "height": 1.38,
+      "paragraphs": [
+        {
+          "text": "Single column",
+          "bullet": false
+        }
+      ],
+      "placeholder_type": "TITLE (1)"
+    },
+    "shape-1": {
+      "left": 0.5,
+      "top": 1.7,
+      "width": 4.37,
+      "height": 3.74,
+      "paragraphs": [
+        {
+          "text": "Remember, less is more. We don’t want to overwhelm our audience with dense copy-heavy paragraphs. \u000b\u000bTry to present information in manageable, bite-sized segments. It’s better to present an idea over two slides, than to overwhelm the reader.",
+          "bullet": false,
+          "bold": true
+        },
+        {
+          "text": "When possible, use this second paragraph to make a follow-up point. Notice the width of this text column. Copy should stay within this length and these parameters.",
+          "bullet": false,
+          "space_before": 10.0
+        }
+      ],
+      "placeholder_type": "BODY (2)"
+    },
+    "shape-2": {
+      "left": 8.75,
+      "top": 5.1,
+      "width": 0.75,
+      "height": 0.43,
+      "paragraphs": [
+        {
+          "text": "‹#›",
+          "bullet": false,
+          "alignment": "RIGHT"
+        }
+      ],
+      "placeholder_type": "SLIDE_NUMBER (13)"
+    }
+  },
+  "slide-5": {
+    "shape-0": {
+      "left": 0.5,
+      "top": 0.7,
+      "width": 8.67,
+      "height": 1.38,
+      "paragraphs": [
+        {
+          "text": "Single column",
+          "bullet": false
+        }
+      ],
+      "placeholder_type": "TITLE (1)"
+    },
+    "shape-1": {
+      "left": 0.5,
+      "top": 1.7,
+      "width": 4.37,
+      "height": 3.74,
+      "paragraphs": [
+        {
+          "text": "Remember, less is more. We don’t want to overwhelm our audience with dense copy-heavy paragraphs. \u000b\u000bTry to present information in manageable, bite-sized segments. It’s better to present an idea over two slides, than to overwhelm the reader.",
+          "bullet": false,
+          "bold": true
+        },
+        {
+          "text": "When possible, use this second paragraph to make a follow-up point. Notice the width of this text column. Copy should stay within this length and these parameters.",
+          "bullet": false,
+          "space_before": 10.0
+        }
+      ],
+      "placeholder_type": "BODY (2)"
+    },
+    "shape-2": {
+      "left": 8.75,
+      "top": 5.1,
+      "width": 0.75,
+      "height": 0.43,
+      "paragraphs": [
+        {
+          "text": "‹#›",
+          "bullet": false,
+          "alignment": "RIGHT"
+        }
+      ],
+      "placeholder_type": "SLIDE_NUMBER (13)"
+    }
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "slide-0": {
+    "shape-0": {
+      "left": 0.5,
+      "top": 0.7,
+      "width": 8.67,
+      "height": 1.38,
+      "paragraphs": [
+        {
+          "text": "Single column",
+          "bullet": false
+        }
+      ],
+      "placeholder_type": "TITLE (1)"
+    },
+    "shape-1": {
+      "left": 0.5,
+      "top": 1.7,
+      "width": 4.37,
+      "height": 3.74,
+      "paragraphs": [
+        {
+          "text": "Remember, less is more. We don’t want to overwhelm our audience with dense copy-heavy paragraphs. \u000b\u000bTry to present information in manageable, bite-sized segments. It’s better to present an idea over two slides, than to overwhelm the reader.",
+          "bullet": false,
+          "bold": true
+        },
+        {
+          "text": "When possible, use this second paragraph to make a follow-up point. Notice the width of this text column. Copy should stay within this length and these parameters.",
+          "bullet": false,
+          "space_before": 10.0
+        }
+      ],
+      "placeholder_type": "BODY (2)"
+    },
+    "shape-2": {
+      "left": 8.75,
+      "top": 5.1,
+      "width": 0.75,
+      "height": 0.43,
+      "paragraphs": [
+        {
+          "text": "‹#›",
+          "bullet": false,
+          "alignment": "RIGHT"
+        }
+      ],
+      "placeholder_type": "SLIDE_NUMBER (13)"
+    }
+  },
+  "slide-1": {
+    "shape-0": {
+      "left": 0.5,
+      "top": 0.7,
+      "width": 8.67,
+      "height": 1.38,
+      "paragraphs": [
+        {
+          "text": "Single column",
+          "bullet": false
+        }
+      ],
+      "placeholder_type": "TITLE (1)"
+    },
+    "shape-1": {
+      "left": 0.5,
+      "top": 1.7,
+      "width": 4.37,
+      "height": 3.74,
+      "paragraphs": [
+        {
+          "text": "Remember, less is more. We don’t want to overwhelm our audience with dense copy-heavy paragraphs. \u000b\u000bTry to present information in manageable, bite-sized segments. It’s better to present an idea over two slides, than to overwhelm the reader.",
+          "bullet": false,
+          "bold": true
+        },
+        {
+          "text": "When possible, use this second paragraph to make a follow-up point. Notice the width of this text column. Copy should stay within this length and these parameters.",
+          "bullet": false,
+          "space_before": 10.0
+        }
+      ],
+      "placeholder_type": "BODY (2)"
+    },
+    "shape-2": {
+      "left": 8.75,
+      "top": 5.1,
+      "width": 0.75,
+      "height": 0.43,
+      "paragraphs": [
+        {
+          "text": "‹#›",
+          "bullet": false,
+          "alignment": "RIGHT"
+        }
+      ],
+      "placeholder_type": "SLIDE_NUMBER (13)"
+    }
+  }
+}

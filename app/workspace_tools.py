@@ -897,6 +897,51 @@ def extract_presentation_inventory(
         return {"ok": False, "error": e.stderr.strip() or e.stdout.strip()}
 
 
+def apply_presentation_replacements_data(
+    pptx_path: str,
+    replacements: dict[str, Any],
+    output_pptx_path: str,
+    cleanup: bool = True,
+) -> dict[str, Any]:
+    """Apply text replacements directly from a dictionary to a PPTX file.
+
+    Args:
+        pptx_path: Path to the source .pptx file.
+        replacements: Dictionary mapping 'slide-N' -> 'shape-M' -> paragraphs.
+        output_pptx_path: Path to save the final .pptx file.
+        cleanup: Whether to delete temporary files after completion.
+    """
+    import json
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+        json.dump(replacements, tmp)
+        tmp_path = tmp.name
+
+    try:
+        script_path = "/usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/app/skills/presentation-skill/scripts/cli.py"
+        cmd = [
+            "python3",
+            script_path,
+            "replace",
+            pptx_path,
+            tmp_path,
+            output_pptx_path,
+        ]
+        if cleanup:
+            cmd.append("--cleanup")
+
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return {"ok": True, "data": {"stdout": result.stdout}}
+    except subprocess.CalledProcessError as e:
+        return {"ok": False, "error": e.stderr.strip() or e.stdout.strip()}
+    finally:
+        import os
+
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
 def apply_presentation_replacements(
     pptx_path: str,
     replacement_json_path: str,
