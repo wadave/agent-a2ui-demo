@@ -1,0 +1,376 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import logging
+import shutil
+import subprocess
+import tempfile
+from copy import deepcopy
+from pathlib import Path
+
+from pptx import Presentation
+from pptx.dml.color import RGBColor
+from pptx.enum.dml import MSO_THEME_COLOR
+from pptx.enum.text import PP_ALIGN
+from pptx.oxml.xmlchemy import OxmlElement
+from pptx.util import Pt
+from utils import get_slide_shapes
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+logger = logging.getLogger(__name__)
+
+
+# --- Analyze Command ---
+def handle_analyze(args):
+    try:
+        prs = Presentation(args.template)
+    except Exception as e:
+        logger.error(f"Failed to open template: {e}")
+        return
+
+    total_slides = len(prs.slides)
+    width_inches = prs.slide_width / 914400
+    height_inches = prs.slide_height / 914400
+    aspect_ratio = width_inches / height_inches
+    aspect_str = (
+        "16:9 (widescreen)"
+        if abs(aspect_ratio - 16 / 9) < 0.01
+        else (
+            "4:3 (standard)"
+            if abs(aspect_ratio - 4 / 3) < 0.01
+            else f"{aspect_ratio:.2f}:1"
+        )
+    )
+
+    print("\n" + "=" * 60)
+    print("TEMPLATE ANALYSIS")
+    print("=" * 60)
+    print(f"Template: {args.template}")
+    print(f"Total Slides: {total_slides}")
+    print(f"Slide Range: 0-{total_slides - 1} (0-indexed)")
+    print(f'Dimensions: {width_inches:.2f}" x {height_inches:.2f}"')
+    print(f"Aspect Ratio: {aspect_str}")
+    print("=" * 60 + "\n")
+
+    for idx, slide in enumerate(prs.slides):
+        shapes = get_slide_shapes(slide)
+        placeholders = [
+            str(s.shape.placeholder_format.type).split(".")[-1]
+            for s in shapes
+            if s.shape.is_placeholder
+        ]
+        preview = " | ".join(
+            [
+                (
+                    s.shape.text.strip()[:50] + "..."
+                    if len(s.shape.text) > 50
+                    else s.shape.text.strip()
+                )
+                for s in shapes
+                if s.shape.text.strip()
+            ][:2]
+        )
+        print(
+            f"Slide {idx}: {len(shapes)} shapes | Placeholders: {', '.join(set(placeholders)) or 'None'}"
+        )
+        if preview:
+            print(f"  Preview: {preview}")
+
+
+# --- Rearrange Command ---
+def duplicate_slide(pres, index):
+    source = pres.slides[index]
+    new_slide = pres.slides.add_slide(source.slide_layout)
+    for _rel_id, rel in source.part.rels.items():
+        if "image" in rel.reltype or "media" in rel.reltype:
+            new_slide.part.rels.get_or_add(rel.reltype, rel._target)
+    for shape in new_slide.shapes:
+        sp = shape.element
+        sp.getparent().remove(sp)
+    for shape in source.shapes:
+        new_el = deepcopy(shape.element)
+        # Robustly insert before extLst if it exists, otherwise append
+        # This ensures we don't break the schema order but also don't fail if extLst is missing
+        ext_lst = new_slide.shapes._spTree.find(
+            "{http://schemas.openxmlformats.org/presentationml/2006/main}extLst"
+        )
+        if ext_lst is not None:
+            ext_lst.addprevious(new_el)
+        else:
+            new_slide.shapes._spTree.append(new_el)
+
+        blips = new_el.xpath(".//a:blip[@r:embed]")
+        for blip in blips:
+            r_attr = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
+            if blip.get(r_attr) in source.part.rels:
+                rel = source.part.rels[blip.get(r_attr)]
+                blip.set(
+                    r_attr, new_slide.part.rels.get_or_add(rel.reltype, rel._target)
+                )
+    return new_slide
+
+
+def handle_rearrange(args):
+    sequence = [int(x.strip()) for x in args.sequence.split(",")]
+    shutil.copy2(args.template, args.output)
+    prs = Presentation(args.output)
+    total_template_slides = len(prs.slides)
+    for idx in sequence:
+        if idx >= total_template_slides:
+            raise ValueError(f"Index {idx} out of range")
+
+    for i in sequence:
+        duplicate_slide(prs, i)
+    sldIdLst = prs.slides._sldIdLst
+    for _ in range(total_template_slides):
+        prs.part.drop_rel(sldIdLst[0].rId)
+        del sldIdLst[0]
+    prs.save(args.output)
+    logger.info(f"Created {args.output} with {len(sequence)} slides")
+
+
+# --- Inventory Command ---
+def handle_inventory(args):
+    prs = Presentation(args.input)
+    inventory = {}
+    for i, slide in enumerate(prs.slides):
+        shapes = get_slide_shapes(slide)
+        if not shapes:
+            continue
+        slide_inventory = {}
+        for idx, sd in enumerate(shapes):
+            sd.shape_id = f"shape-{idx}"
+            if not args.issues_only or sd.has_any_issues:
+                slide_inventory[sd.shape_id] = sd.to_dict()
+        if slide_inventory:
+            inventory[f"slide-{i}"] = slide_inventory
+    with open(args.output, "w", encoding="utf-8") as f:
+        json.dump(inventory, f, indent=2, ensure_ascii=False)
+    logger.info(f"Inventory saved to {args.output}")
+
+
+# --- Replace Command ---
+def apply_para_props(paragraph, data):
+    pPr = paragraph._element.get_or_add_pPr()
+    for child in list(pPr):
+        if any(
+            child.tag.endswith(s) for s in ["buChar", "buNone", "buAutoNum", "buFont"]
+        ):
+            pPr.remove(child)
+    if data.get("bullet", False):
+        level = data.get("level", 0)
+        paragraph.level = level
+        sz = data.get("font_size", 18.0)
+        pPr.set("marL", str(int((sz * (1.6 + level * 1.6)) * 12700)))
+        pPr.set("indent", str(int(-sz * 0.8 * 12700)))
+        bu = OxmlElement("a:buChar")
+        bu.set("char", "•")
+        pPr.append(bu)
+    else:
+        pPr.set("marL", "0")
+        pPr.set("indent", "0")
+        pPr.insert(0, OxmlElement("a:buNone"))
+    if "alignment" in data:
+        amap = {
+            "LEFT": PP_ALIGN.LEFT,
+            "CENTER": PP_ALIGN.CENTER,
+            "RIGHT": PP_ALIGN.RIGHT,
+            "JUSTIFY": PP_ALIGN.JUSTIFY,
+        }
+        paragraph.alignment = amap.get(data["alignment"], PP_ALIGN.LEFT)
+    if "space_before" in data:
+        paragraph.space_before = Pt(data["space_before"])
+    if "space_after" in data:
+        paragraph.space_after = Pt(data["space_after"])
+    run = paragraph.add_run() if not paragraph.runs else paragraph.runs[0]
+    run.text = data.get("text", "")
+    f = run.font
+    if "bold" in data:
+        f.bold = data["bold"]
+    if "italic" in data:
+        f.italic = data["italic"]
+    if "font_size" in data:
+        f.size = Pt(data["font_size"])
+    if "font_name" in data:
+        f.name = data["font_name"]
+    if "color" in data:
+        c = data["color"].lstrip("#")
+        if len(c) == 6:
+            f.color.rgb = RGBColor(int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16))
+    elif "theme_color" in data:
+        try:
+            f.color.theme_color = getattr(MSO_THEME_COLOR, data["theme_color"])
+        except AttributeError:
+            logger.warning(f"Unknown theme color: {data['theme_color']}")
+
+
+def handle_replace(args):
+    prs = Presentation(args.input)
+    with open(args.replacements) as f:
+        replacements = json.load(f)
+    for slide_key, shape_data in replacements.items():
+        s_idx = int(slide_key.split("-")[1])
+        if s_idx >= len(prs.slides):
+            continue
+        shapes = get_slide_shapes(prs.slides[s_idx])
+        for shape_key, r_data in shape_data.items():
+            sh_idx = int(shape_key.split("-")[1])
+            if sh_idx >= len(shapes):
+                continue
+            tf = shapes[sh_idx].shape.text_frame
+            tf.clear()
+            for i, p_data in enumerate(r_data.get("paragraphs", [])):
+                p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+                apply_para_props(p, p_data)
+    prs.save(args.output)
+    logger.info(f"Saved: {args.output}")
+    # Overflow check
+    prs_out = Presentation(args.output)
+    overflows = []
+    for i, slide in enumerate(prs_out.slides):
+        for idx, sd in enumerate(get_slide_shapes(slide)):
+            if sd.frame_overflow_bottom:
+                overflows.append(
+                    f'Slide {i} / Shape {idx}: +{sd.frame_overflow_bottom}"'
+                )
+    if overflows:
+        logger.warning(f"Found {len(overflows)} overflow(s):")
+        for m in overflows:
+            logger.warning(f"  - {m}")
+    if args.cleanup:
+        for f in [args.input, args.replacements, "text-inventory.json"]:
+            if Path(f).exists():
+                Path(f).unlink()
+                logger.info(f"Removed: {f}")
+
+
+# --- Thumbnail Command ---
+def handle_thumbnail(args):
+    if not shutil.which("soffice") or not shutil.which("pdftoppm"):
+        logger.error("Missing libreoffice or poppler-utils")
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        subprocess.run(
+            [
+                "soffice",
+                "--headless",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                str(tmp_path),
+                args.input,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        pdf_path = tmp_path / f"{Path(args.input).stem}.pdf"
+        subprocess.run(
+            ["pdftoppm", "-jpeg", "-r", "100", str(pdf_path), str(tmp_path / "slide")],
+            check=True,
+            capture_output=True,
+        )
+        imgs = sorted(tmp_path.glob("slide-*.jpg"))
+        from PIL import Image, ImageDraw
+
+        chunk_sz = args.cols * (args.cols + 1)
+        for i, start in enumerate(range(0, len(imgs), chunk_sz)):
+            chunk = imgs[start : start + chunk_sz]
+            with Image.open(chunk[0]) as first:
+                thumb_h = int(300 * (first.height / first.width))
+            rows = (len(chunk) + args.cols - 1) // args.cols
+            grid = Image.new(
+                "RGB", (args.cols * 320 + 20, rows * (thumb_h + 40) + 20), "white"
+            )
+            draw = ImageDraw.Draw(grid)
+            for j, p in enumerate(chunk):
+                r, c = j // args.cols, j % args.cols
+                x, y = c * 320 + 20, r * (thumb_h + 40) + 20
+                draw.text((x + 5, y), str(start + j), fill="black")
+                with Image.open(p) as im:
+                    im.thumbnail((300, thumb_h))
+                    grid.paste(im, (x, y + 25))
+            out_name = (
+                f"{args.prefix}-{i + 1}.jpg"
+                if len(imgs) > chunk_sz
+                else f"{args.prefix}.jpg"
+            )
+            grid.save(out_name, quality=95)
+            logger.info(f"Created: {out_name}")
+
+
+# --- Cleanup Command ---
+def handle_cleanup(args):
+    patterns = [
+        "working.pptx",
+        "text-inventory.json",
+        "replacement-text.json",
+        "template-content.md",
+        "template-analysis.md",
+    ]
+    found = [p for p in patterns if Path(p).exists()]
+    for d in ["template-thumbnails"]:
+        if Path(d).is_dir():
+            found.append(d)
+    if not found:
+        logger.info("No temporary files found")
+        return
+    if not args.yes:
+        print(f"Delete: {', '.join(found)}?")
+        resp = input("[y/N]: ").lower()
+        if resp not in ["y", "yes"]:
+            return
+    for p in found:
+        if Path(p).is_file():
+            Path(p).unlink()
+        else:
+            shutil.rmtree(p)
+        logger.info(f"Removed: {p}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Presentation Skill CLI")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    p_analyze = subparsers.add_parser("analyze", help="Analyze template")
+    p_analyze.add_argument("template", help="Template PPTX")
+
+    p_rearrange = subparsers.add_parser("rearrange", help="Rearrange slides")
+    p_rearrange.add_argument("template", help="Template PPTX")
+    p_rearrange.add_argument("output", help="Output PPTX")
+    p_rearrange.add_argument("sequence", help="Comma-separated indices")
+
+    p_inventory = subparsers.add_parser("inventory", help="Extract inventory")
+    p_inventory.add_argument("input", help="Input PPTX")
+    p_inventory.add_argument("output", help="Output JSON")
+    p_inventory.add_argument("--issues-only", action="store_true")
+
+    p_replace = subparsers.add_parser("replace", help="Apply replacements")
+    p_replace.add_argument("input", help="Input PPTX")
+    p_replace.add_argument("replacements", help="Replacements JSON")
+    p_replace.add_argument("output", help="Output PPTX")
+    p_replace.add_argument("--cleanup", action="store_true")
+
+    p_thumb = subparsers.add_parser("thumbnail", help="Create thumbnails")
+    p_thumb.add_argument("input", help="Input PPTX")
+    p_thumb.add_argument("prefix", nargs="?", default="thumbnails")
+    p_thumb.add_argument("--cols", type=int, default=5)
+
+    p_clean = subparsers.add_parser("cleanup", help="Clean up files")
+    p_clean.add_argument("--yes", action="store_true")
+
+    args = parser.parse_args()
+    cmds = {
+        "analyze": handle_analyze,
+        "rearrange": handle_rearrange,
+        "inventory": handle_inventory,
+        "replace": handle_replace,
+        "thumbnail": handle_thumbnail,
+        "cleanup": handle_cleanup,
+    }
+    cmds[args.command](args)
+
+
+if __name__ == "__main__":
+    main()

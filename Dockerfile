@@ -41,8 +41,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && apt-get install -y --no-install-recommends nodejs \
  && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @googleworkspace/cli@latest \
- && npm install -g @gemini-cli-extensions/workspace@latest
+RUN npm install -g @googleworkspace/cli@latest
+
 
 
 RUN uv sync --frozen

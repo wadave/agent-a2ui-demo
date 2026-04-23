@@ -19,13 +19,15 @@ from google.adk.tools.google_search_tool import GoogleSearchTool
 
 from app.config import DEFAULT_MODEL
 
-search_agent = LlmAgent(
-    model=DEFAULT_MODEL,
-    name="search_agent",
-    instruction=(
-        "You're a specialist in Google Search grounding. "
-        "Use web search to find current, factual information "
-        "and provide structured findings with source attribution."
-    ),
-    tools=[GoogleSearchTool()],
-)
+
+def get_search_agent() -> LlmAgent:
+    return LlmAgent(
+        model=DEFAULT_MODEL,
+        name="search_agent",
+        instruction=(
+            "You're a specialist in Google Search grounding. "
+            "Use web search to find current, factual information "
+            "and provide structured findings with source attribution."
+        ),
+        tools=[GoogleSearchTool()],
+    )

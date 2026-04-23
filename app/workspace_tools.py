@@ -1,70 +1,250 @@
-"""Google Workspace mutation wrappers backed by the `gws` CLI."""
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Google Workspace tools supporting both gws CLI (local) and SDK/ADC (Cloud Run)."""
 
 from __future__ import annotations
 
 import json
-import logging
+import os
 import subprocess
 from typing import Any, Literal
 
-logger = logging.getLogger(__name__)
+import google.auth
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
-_GWS = "gws"
-_TIMEOUT_SEC = 30
+_USE_ADC = os.getenv("K_SERVICE") is not None or os.getenv("USE_ADC") == "TRUE"
+
+_SCOPES = [
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/documents",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/presentations",
+]
+
+
+def _get_service(service_name: str, version: str):
+    """Build a Google API service client using Application Default Credentials."""
+    credentials, _ = google.auth.default(scopes=_SCOPES)
+    if hasattr(credentials, "with_scopes"):
+        credentials = credentials.with_scopes(_SCOPES)
+    return build(service_name, version, credentials=credentials)
+
+
+def _get_or_create_folder_adc(drive_service, folder_name: str) -> str | None:
+    """Get the ID of a folder by name via SDK."""
+    try:
+        q = f"name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        results = (
+            drive_service.files()
+            .list(q=q, spaces="drive", fields="files(id, name)")
+            .execute()
+        )
+        files = results.get("files", [])
+        if files:
+            return files[0].get("id")
+
+        file_metadata = {
+            "name": folder_name,
+            "mimeType": "application/vnd.google-apps.folder",
+        }
+        file = drive_service.files().create(body=file_metadata, fields="id").execute()
+        return file.get("id")
+    except Exception:
+        return None
+
+
+def _move_file_to_folder_adc(drive_service, file_id: str, folder_id: str) -> bool:
+    """Move a file to a parent folder via SDK."""
+    try:
+        file = drive_service.files().get(fileId=file_id, fields="parents").execute()
+        previous_parents = ",".join(file.get("parents", []))
+        drive_service.files().update(
+            fileId=file_id,
+            addParents=folder_id,
+            removeParents=previous_parents,
+            fields="id, parents",
+        ).execute()
+        return True
+    except Exception:
+        return False
 
 
 def _run_gws(args: list[str]) -> dict[str, Any]:
-    """Execute a gws command; always return a structured result."""
+    """Execute a gws CLI command locally."""
+    cmd = ["gws", *args]
+
     try:
-        proc = subprocess.run(
-            [_GWS, *args],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=_TIMEOUT_SEC,
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=True, timeout=30
         )
-    except subprocess.CalledProcessError as exc:
-        logger.error("gws failed: %s", exc.stderr)
-        return {"ok": False, "error": exc.stderr.strip() or str(exc)}
+        stdout = result.stdout.strip()
+        try:
+            return {"ok": True, "data": json.loads(stdout)}
+        except json.JSONDecodeError:
+            return {"ok": True, "data": {"raw": stdout}}
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "gws command timed out"}
-    try:
-        return {"ok": True, "data": json.loads(proc.stdout)}
-    except json.JSONDecodeError:
-        return {"ok": True, "data": {"raw": proc.stdout.strip()}}
+    except subprocess.CalledProcessError as e:
+        return {"ok": False, "error": e.stderr.strip() or e.stdout.strip()}
 
 
-def create_doc(title: str) -> dict[str, Any]:
-    """Create an empty Google Doc; returns {ok, data: {doc_id, url}} or error."""
-    result = _run_gws(
-        ["docs", "documents", "create", "--json", json.dumps({"title": title})]
+def _get_or_create_folder_cli(folder_name: str) -> str | None:
+    """Get or create folder via CLI."""
+    res = _run_gws(
+        [
+            "drive",
+            "files",
+            "list",
+            "--params",
+            json.dumps(
+                {
+                    "q": f"name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+                }
+            ),
+        ]
     )
-    if not result["ok"]:
-        return result
-    doc_id = result["data"].get("documentId")
-    return {
-        "ok": True,
-        "data": {
-            "doc_id": doc_id,
-            "url": f"https://docs.google.com/document/d/{doc_id}/edit",
-        },
-    }
+    if res["ok"] and isinstance(res["data"], dict) and "files" in res["data"]:
+        files = res["data"]["files"]
+        if files:
+            return files[0].get("id")
+
+    create_res = _run_gws(
+        [
+            "drive",
+            "files",
+            "create",
+            "--json",
+            json.dumps(
+                {
+                    "name": folder_name,
+                    "mimeType": "application/vnd.google-apps.folder",
+                }
+            ),
+        ]
+    )
+    if create_res["ok"] and isinstance(create_res["data"], dict):
+        return create_res["data"].get("id")
+    return None
+
+
+def _move_file_to_folder_cli(file_id: str, folder_id: str) -> bool:
+    """Move file via CLI."""
+    get_res = _run_gws(
+        ["drive", "files", "get", "--params", json.dumps({"fileId": file_id})]
+    )
+    if not get_res["ok"] or not isinstance(get_res["data"], dict):
+        return False
+
+    parents = get_res["data"].get("parents", [])
+    remove_parents = ",".join(parents)
+
+    move_res = _run_gws(
+        [
+            "drive",
+            "files",
+            "update",
+            "--params",
+            json.dumps(
+                {
+                    "fileId": file_id,
+                    "addParents": folder_id,
+                    "removeParents": remove_parents,
+                }
+            ),
+        ]
+    )
+    return move_res["ok"]
+
+
+def create_doc(title: str, folder_name: str | None = None) -> dict[str, Any]:
+    """Create an empty Google Doc."""
+    if _USE_ADC:
+        try:
+            docs_service = _get_service("docs", "v1")
+            drive_service = _get_service("drive", "v3")
+            doc = docs_service.documents().create(body={"title": title}).execute()
+            doc_id = doc.get("documentId")
+
+            if folder_name:
+                folder_id = _get_or_create_folder_adc(drive_service, folder_name)
+                if folder_id:
+                    _move_file_to_folder_adc(drive_service, doc_id, folder_id)
+
+            return {
+                "ok": True,
+                "data": {
+                    "doc_id": doc_id,
+                    "url": f"https://docs.google.com/document/d/{doc_id}/edit",
+                },
+            }
+        except HttpError as e:
+            return {"ok": False, "error": str(e)}
+    else:
+        res = _run_gws(
+            [
+                "docs",
+                "documents",
+                "create",
+                "--json",
+                json.dumps({"title": title}),
+            ]
+        )
+        if not res["ok"]:
+            return res
+
+        doc_id = res["data"].get("documentId")
+        if folder_name:
+            folder_id = _get_or_create_folder_cli(folder_name)
+            if folder_id:
+                _move_file_to_folder_cli(doc_id, folder_id)
+
+        return {
+            "ok": True,
+            "data": {
+                "doc_id": doc_id,
+                "url": f"https://docs.google.com/document/d/{doc_id}/edit",
+            },
+        }
 
 
 def append_doc_text(document_id: str, text: str) -> dict[str, Any]:
-    """Append text to the end of a doc via documents.batchUpdate."""
-    body = {"requests": [{"insertText": {"endOfSegmentLocation": {}, "text": text}}]}
-    return _run_gws(
-        [
-            "docs",
-            "documents",
-            "batchUpdate",
-            "--documentId",
-            document_id,
-            "--json",
-            json.dumps(body),
-        ]
-    )
+    """Append text to a doc."""
+    if _USE_ADC:
+        try:
+            docs_service = _get_service("docs", "v1")
+            requests = [{"insertText": {"endOfSegmentLocation": {}, "text": text}}]
+            docs_service.documents().batchUpdate(
+                documentId=document_id, body={"requests": requests}
+            ).execute()
+            return {"ok": True}
+        except HttpError as e:
+            return {"ok": False, "error": str(e)}
+    else:
+        body = {"requests": [{"insertText": {"text": text}}]}
+        return _run_gws(
+            [
+                "docs",
+                "documents",
+                "batchUpdate",
+                "--params",
+                json.dumps({"documentId": document_id}),
+                "--json",
+                json.dumps(body),
+            ]
+        )
 
 
 def share_doc(
@@ -72,16 +252,678 @@ def share_doc(
     email: str,
     role: Literal["reader", "commenter", "writer"] = "reader",
 ) -> dict[str, Any]:
-    """Grant a user permission on a Drive file."""
-    body = {"type": "user", "role": role, "emailAddress": email}
-    return _run_gws(
-        [
-            "drive",
-            "permissions",
-            "create",
-            "--fileId",
-            document_id,
-            "--json",
-            json.dumps(body),
+    """Share Drive file."""
+    if _USE_ADC:
+        try:
+            drive_service = _get_service("drive", "v3")
+            user_permission = {
+                "type": "user",
+                "role": role,
+                "emailAddress": email,
+            }
+            drive_service.permissions().create(
+                fileId=document_id, body=user_permission
+            ).execute()
+            return {"ok": True}
+        except HttpError as e:
+            return {"ok": False, "error": str(e)}
+    else:
+        body = {"type": "user", "role": role, "emailAddress": email}
+        return _run_gws(
+            [
+                "drive",
+                "permissions",
+                "create",
+                "--params",
+                json.dumps({"fileId": document_id}),
+                "--json",
+                json.dumps(body),
+            ]
+        )
+
+
+def create_sheet(title: str, folder_name: str | None = None) -> dict[str, Any]:
+    """Create empty Sheet."""
+    if _USE_ADC:
+        try:
+            sheets_service = _get_service("sheets", "v4")
+            drive_service = _get_service("drive", "v3")
+            spreadsheet = {"properties": {"title": title}}
+            ss = (
+                sheets_service.spreadsheets()
+                .create(body=spreadsheet, fields="spreadsheetId")
+                .execute()
+            )
+            sheet_id = ss.get("spreadsheetId")
+
+            if folder_name:
+                folder_id = _get_or_create_folder_adc(drive_service, folder_name)
+                if folder_id:
+                    _move_file_to_folder_adc(drive_service, sheet_id, folder_id)
+
+            return {
+                "ok": True,
+                "data": {
+                    "sheet_id": sheet_id,
+                    "url": f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit",
+                },
+            }
+        except HttpError as e:
+            return {"ok": False, "error": str(e)}
+    else:
+        res = _run_gws(
+            [
+                "sheets",
+                "spreadsheets",
+                "create",
+                "--json",
+                json.dumps({"properties": {"title": title}}),
+            ]
+        )
+        if not res["ok"]:
+            return res
+
+        sheet_id = res["data"].get("spreadsheetId")
+        if folder_name:
+            folder_id = _get_or_create_folder_cli(folder_name)
+            if folder_id:
+                _move_file_to_folder_cli(sheet_id, folder_id)
+
+        return {
+            "ok": True,
+            "data": {
+                "sheet_id": sheet_id,
+                "url": f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit",
+            },
+        }
+
+
+def append_sheet_data(
+    spreadsheet_id: str,
+    values: list[list[Any]],
+    range_name: str = "Sheet1!A1",
+    value_input_option: Literal["RAW", "USER_ENTERED"] = "USER_ENTERED",
+) -> dict[str, Any]:
+    """Append Sheet data."""
+    if _USE_ADC:
+        try:
+            sheets_service = _get_service("sheets", "v4")
+            body = {"values": values}
+            (
+                sheets_service.spreadsheets()
+                .values()
+                .append(
+                    spreadsheetId=spreadsheet_id,
+                    range=range_name,
+                    valueInputOption=value_input_option,
+                    insertDataOption="INSERT_ROWS",
+                    body=body,
+                )
+                .execute()
+            )
+            return {"ok": True}
+        except HttpError as e:
+            return {"ok": False, "error": str(e)}
+    else:
+        body = {"values": values}
+        return _run_gws(
+            [
+                "sheets",
+                "spreadsheets",
+                "values",
+                "append",
+                "--params",
+                json.dumps(
+                    {
+                        "spreadsheetId": spreadsheet_id,
+                        "range": range_name,
+                        "valueInputOption": value_input_option,
+                        "insertDataOption": "INSERT_ROWS",
+                    }
+                ),
+                "--json",
+                json.dumps(body),
+            ]
+        )
+
+
+def create_presentation(title: str, folder_name: str | None = None) -> dict[str, Any]:
+    """Create empty presentation."""
+    if _USE_ADC:
+        try:
+            slides_service = _get_service("slides", "v1")
+            drive_service = _get_service("drive", "v3")
+            presentation = {"title": title}
+            pres = slides_service.presentations().create(body=presentation).execute()
+            presentation_id = pres.get("presentationId")
+
+            if folder_name:
+                folder_id = _get_or_create_folder_adc(drive_service, folder_name)
+                if folder_id:
+                    _move_file_to_folder_adc(drive_service, presentation_id, folder_id)
+
+            return {
+                "ok": True,
+                "data": {
+                    "presentation_id": presentation_id,
+                    "url": f"https://docs.google.com/presentation/d/{presentation_id}/edit",
+                },
+            }
+        except HttpError as e:
+            return {"ok": False, "error": str(e)}
+    else:
+        res = _run_gws(
+            [
+                "slides",
+                "presentations",
+                "create",
+                "--json",
+                json.dumps({"title": title}),
+            ]
+        )
+        if not res["ok"]:
+            return res
+
+        presentation_id = res["data"].get("presentationId")
+        if folder_name:
+            folder_id = _get_or_create_folder_cli(folder_name)
+            if folder_id:
+                _move_file_to_folder_cli(presentation_id, folder_id)
+
+        return {
+            "ok": True,
+            "data": {
+                "presentation_id": presentation_id,
+                "url": f"https://docs.google.com/presentation/d/{presentation_id}/edit",
+            },
+        }
+
+
+def add_presentation_slide(
+    presentation_id: str, title: str, body_text: str
+) -> dict[str, Any]:
+    """Add slide via batchUpdate."""
+    if _USE_ADC:
+        try:
+            slides_service = _get_service("slides", "v1")
+            import uuid
+
+            slide_id = f"slide_{uuid.uuid4().hex[:8]}"
+            title_id = f"title_{uuid.uuid4().hex[:8]}"
+            body_id = f"body_{uuid.uuid4().hex[:8]}"
+
+            requests = [
+                {"createSlide": {"objectId": slide_id}},
+                {
+                    "createShape": {
+                        "objectId": title_id,
+                        "shapeType": "TEXT_BOX",
+                        "elementProperties": {
+                            "pageObjectId": slide_id,
+                            "size": {
+                                "width": {"magnitude": 6000000, "unit": "EMU"},
+                                "height": {"magnitude": 1000000, "unit": "EMU"},
+                            },
+                            "transform": {
+                                "scaleX": 1,
+                                "scaleY": 1,
+                                "translateX": 500000,
+                                "translateY": 500000,
+                                "unit": "EMU",
+                            },
+                        },
+                    }
+                },
+                {"insertText": {"objectId": title_id, "text": title}},
+                {
+                    "createShape": {
+                        "objectId": body_id,
+                        "shapeType": "TEXT_BOX",
+                        "elementProperties": {
+                            "pageObjectId": slide_id,
+                            "size": {
+                                "width": {"magnitude": 6000000, "unit": "EMU"},
+                                "height": {"magnitude": 3000000, "unit": "EMU"},
+                            },
+                            "transform": {
+                                "scaleX": 1,
+                                "scaleY": 1,
+                                "translateX": 500000,
+                                "translateY": 1800000,
+                                "unit": "EMU",
+                            },
+                        },
+                    }
+                },
+                {"insertText": {"objectId": body_id, "text": body_text}},
+            ]
+
+            (
+                slides_service.presentations()
+                .batchUpdate(
+                    presentationId=presentation_id, body={"requests": requests}
+                )
+                .execute()
+            )
+            return {"ok": True}
+        except HttpError as e:
+            return {"ok": False, "error": str(e)}
+    else:
+        import uuid
+
+        slide_id = f"slide_{uuid.uuid4().hex[:8]}"
+        title_id = f"title_{uuid.uuid4().hex[:8]}"
+        body_id = f"body_{uuid.uuid4().hex[:8]}"
+
+        requests = [
+            {"createSlide": {"objectId": slide_id}},
+            {
+                "createShape": {
+                    "objectId": title_id,
+                    "shapeType": "TEXT_BOX",
+                    "elementProperties": {
+                        "pageObjectId": slide_id,
+                        "size": {
+                            "width": {"magnitude": 6000000, "unit": "EMU"},
+                            "height": {"magnitude": 1000000, "unit": "EMU"},
+                        },
+                        "transform": {
+                            "scaleX": 1,
+                            "scaleY": 1,
+                            "translateX": 500000,
+                            "translateY": 500000,
+                            "unit": "EMU",
+                        },
+                    },
+                }
+            },
+            {"insertText": {"objectId": title_id, "text": title}},
+            {
+                "createShape": {
+                    "objectId": body_id,
+                    "shapeType": "TEXT_BOX",
+                    "elementProperties": {
+                        "pageObjectId": slide_id,
+                        "size": {
+                            "width": {"magnitude": 6000000, "unit": "EMU"},
+                            "height": {"magnitude": 3000000, "unit": "EMU"},
+                        },
+                        "transform": {
+                            "scaleX": 1,
+                            "scaleY": 1,
+                            "translateX": 500000,
+                            "translateY": 1800000,
+                            "unit": "EMU",
+                        },
+                    },
+                }
+            },
+            {"insertText": {"objectId": body_id, "text": body_text}},
         ]
-    )
+
+        return _run_gws(
+            [
+                "slides",
+                "presentations",
+                "batchUpdate",
+                "--params",
+                json.dumps({"presentationId": presentation_id}),
+                "--json",
+                json.dumps({"requests": requests}),
+            ]
+        )
+
+
+def upload_presentation(
+    file_path: str, title: str | None = None, folder_name: str | None = None
+) -> dict[str, Any]:
+    """Upload PPTX."""
+    if _USE_ADC:
+        try:
+            drive_service = _get_service("drive", "v3")
+            import os
+
+            if not os.path.exists(file_path):
+                return {
+                    "ok": False,
+                    "error": f"Local file not found: {file_path}",
+                }
+
+            name = title or os.path.basename(file_path)
+            file_metadata = {
+                "name": name,
+                "mimeType": "application/vnd.google-apps.presentation",
+            }
+
+            from googleapiclient.http import MediaFileUpload
+
+            media = MediaFileUpload(
+                file_path,
+                mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+
+            file = (
+                drive_service.files()
+                .create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields="id",
+                )
+                .execute()
+            )
+
+            presentation_id = file.get("id")
+
+            if folder_name:
+                folder_id = _get_or_create_folder_adc(drive_service, folder_name)
+                if folder_id:
+                    _move_file_to_folder_adc(drive_service, presentation_id, folder_id)
+
+            return {
+                "ok": True,
+                "data": {
+                    "presentation_id": presentation_id,
+                    "url": f"https://docs.google.com/presentation/d/{presentation_id}/edit",
+                },
+            }
+        except HttpError as e:
+            return {"ok": False, "error": str(e)}
+    else:
+        import os
+
+        if not os.path.exists(file_path):
+            return {
+                "ok": False,
+                "error": f"Local file not found: {file_path}",
+            }
+
+        name = title or os.path.basename(file_path)
+        body = {
+            "name": name,
+            "mimeType": "application/vnd.google-apps.presentation",
+        }
+
+        res = _run_gws(
+            [
+                "drive",
+                "files",
+                "create",
+                "--params",
+                json.dumps(
+                    {
+                        "media": file_path,
+                        "mediaType": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    }
+                ),
+                "--json",
+                json.dumps(body),
+            ]
+        )
+        if not res["ok"]:
+            return res
+
+        presentation_id = res["data"].get("id")
+        if folder_name:
+            folder_id = _get_or_create_folder_cli(folder_name)
+            if folder_id:
+                _move_file_to_folder_cli(presentation_id, folder_id)
+
+        return {
+            "ok": True,
+            "data": {
+                "presentation_id": presentation_id,
+                "url": f"https://docs.google.com/presentation/d/{presentation_id}/edit",
+            },
+        }
+
+
+def read_doc(document_id: str) -> dict[str, Any]:
+    """Read Doc."""
+    if _USE_ADC:
+        try:
+            docs_service = _get_service("docs", "v1")
+            doc = docs_service.documents().get(documentId=document_id).execute()
+
+            content = doc.get("body", {}).get("content", [])
+            text = ""
+            for element in content:
+                if "paragraph" in element:
+                    for part in element["paragraph"].get("elements", []):
+                        if "textRun" in part:
+                            text += part["textRun"].get("content", "")
+
+            return {"ok": True, "data": {"text": text}}
+        except HttpError as e:
+            return {"ok": False, "error": str(e)}
+    else:
+        return _run_gws(
+            [
+                "docs",
+                "documents",
+                "get",
+                "--params",
+                json.dumps({"documentId": document_id}),
+            ]
+        )
+
+
+def read_sheet(spreadsheet_id: str, range_name: str = "Sheet1!A:Z") -> dict[str, Any]:
+    """Read Sheet."""
+    if _USE_ADC:
+        try:
+            sheets_service = _get_service("sheets", "v4")
+            result = (
+                sheets_service.spreadsheets()
+                .values()
+                .get(spreadsheetId=spreadsheet_id, range=range_name)
+                .execute()
+            )
+            return {"ok": True, "data": {"values": result.get("values", [])}}
+        except HttpError as e:
+            return {"ok": False, "error": str(e)}
+    else:
+        return _run_gws(
+            [
+                "sheets",
+                "spreadsheets",
+                "values",
+                "get",
+                "--params",
+                json.dumps({"spreadsheetId": spreadsheet_id, "range": range_name}),
+            ]
+        )
+
+
+def read_presentation(presentation_id: str) -> dict[str, Any]:
+    """Read presentation."""
+    if _USE_ADC:
+        try:
+            slides_service = _get_service("slides", "v1")
+            pres = (
+                slides_service.presentations()
+                .get(presentationId=presentation_id)
+                .execute()
+            )
+
+            slides = pres.get("slides", [])
+            text = ""
+            for i, slide in enumerate(slides):
+                text += f"--- Slide {i + 1} ---\n"
+                for element in slide.get("pageElements", []):
+                    if "shape" in element and "text" in element["shape"]:
+                        for part in element["shape"]["text"].get("textElements", []):
+                            if "textRun" in part:
+                                text += part["textRun"].get("content", "")
+
+            return {"ok": True, "data": {"text": text}}
+        except HttpError as e:
+            return {"ok": False, "error": str(e)}
+    else:
+        return _run_gws(
+            [
+                "slides",
+                "presentations",
+                "get",
+                "--params",
+                json.dumps({"presentationId": presentation_id}),
+            ]
+        )
+
+
+def read_drive_file(file_id: str) -> dict[str, Any]:
+    """Read Drive file."""
+    if _USE_ADC:
+        try:
+            drive_service = _get_service("drive", "v3")
+            import io
+
+            from googleapiclient.http import MediaIoBaseDownload
+
+            request = drive_service.files().get_media(fileId=file_id)
+            file_stream = io.BytesIO()
+            downloader = MediaIoBaseDownload(file_stream, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+
+            import os
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                tmp.write(file_stream.getvalue())
+                tmp_path = tmp.name
+
+            try:
+                from google import genai
+
+                client = genai.Client()
+                uploaded_file = client.files.upload(file=tmp_path)
+
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=[
+                        uploaded_file,
+                        "Extract all text content from this file. Respond with the extracted text only.",
+                    ],
+                )
+                client.files.delete(name=uploaded_file.name)
+                return {"ok": True, "data": {"text": response.text}}
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+        except HttpError as e:
+            return {"ok": False, "error": str(e)}
+    else:
+        return _run_gws(
+            ["drive", "files", "get", "--params", json.dumps({"fileId": file_id})]
+        )
+
+
+def read_local_file(file_path: str) -> dict[str, Any]:
+    """Read local file."""
+    import os
+
+    from google import genai
+
+    if not os.path.exists(file_path):
+        return {"ok": False, "error": f"Local file not found: {file_path}"}
+
+    client = genai.Client()
+    try:
+        uploaded_file = client.files.upload(file=file_path)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                uploaded_file,
+                "Extract all text content from this file. Respond with the extracted text only.",
+            ],
+        )
+        client.files.delete(name=uploaded_file.name)
+        return {"ok": True, "data": {"text": response.text}}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def rearrange_presentation_slides(
+    template_path: str, output_path: str, indices: list[int]
+) -> dict[str, Any]:
+    """Rearrange slides from a template into a new working presentation.
+
+    Args:
+        template_path: Path to the source template .pptx file.
+        output_path: Path to save the working .pptx file.
+        indices: List of 0-based slide indices from the template to include.
+    """
+    script_path = "/usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/app/skills/presentation-skill/scripts/cli.py"
+    indices_str = ",".join(map(str, indices))
+    try:
+        result = subprocess.run(
+            [
+                "python3",
+                script_path,
+                "rearrange",
+                template_path,
+                output_path,
+                indices_str,
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return {"ok": True, "data": {"stdout": result.stdout}}
+    except subprocess.CalledProcessError as e:
+        return {"ok": False, "error": e.stderr.strip() or e.stdout.strip()}
+
+
+def extract_presentation_inventory(
+    pptx_path: str, output_json_path: str
+) -> dict[str, Any]:
+    """Extract text shape inventory from a PPTX file to a JSON file.
+
+    Args:
+        pptx_path: Path to the .pptx file.
+        output_json_path: Path to save the extracted inventory JSON.
+    """
+    script_path = "/usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/app/skills/presentation-skill/scripts/cli.py"
+    try:
+        result = subprocess.run(
+            ["python3", script_path, "inventory", pptx_path, output_json_path],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return {"ok": True, "data": {"stdout": result.stdout}}
+    except subprocess.CalledProcessError as e:
+        return {"ok": False, "error": e.stderr.strip() or e.stdout.strip()}
+
+
+def apply_presentation_replacements(
+    pptx_path: str,
+    replacement_json_path: str,
+    output_pptx_path: str,
+    cleanup: bool = True,
+) -> dict[str, Any]:
+    """Apply text replacements from a JSON file to a PPTX file.
+
+    Args:
+        pptx_path: Path to the source .pptx file.
+        replacement_json_path: Path to the JSON file containing replacements.
+        output_pptx_path: Path to save the final .pptx file.
+        cleanup: Whether to delete temporary files after completion.
+    """
+    script_path = "/usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/app/skills/presentation-skill/scripts/cli.py"
+    cmd = [
+        "python3",
+        script_path,
+        "replace",
+        pptx_path,
+        replacement_json_path,
+        output_pptx_path,
+    ]
+    if cleanup:
+        cmd.append("--cleanup")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return {"ok": True, "data": {"stdout": result.stdout}}
+    except subprocess.CalledProcessError as e:
+        return {"ok": False, "error": e.stderr.strip() or e.stdout.strip()}

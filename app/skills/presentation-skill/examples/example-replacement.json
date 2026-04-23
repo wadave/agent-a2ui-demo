@@ -1,0 +1,243 @@
+{
+  "slide-0": {
+    "shape-0": {
+      "paragraphs": [
+        {
+          "text": "Q1 2026 Product Roadmap",
+          "alignment": "CENTER",
+          "bold": true,
+          "font_size": 44.0
+        }
+      ]
+    },
+    "shape-1": {
+      "paragraphs": [
+        {
+          "text": "Engineering & Product Teams",
+          "alignment": "CENTER",
+          "font_size": 24.0
+        }
+      ]
+    },
+    "shape-2": {
+      "paragraphs": [
+        {
+          "text": "January 2026",
+          "alignment": "CENTER",
+          "font_size": 18.0
+        }
+      ]
+    }
+  },
+  "slide-1": {
+    "shape-0": {
+      "paragraphs": [
+        {
+          "text": "Agenda",
+          "bold": true,
+          "font_size": 32.0
+        }
+      ]
+    },
+    "shape-1": {
+      "paragraphs": [
+        {
+          "text": "Overview",
+          "bullet": true,
+          "level": 0
+        },
+        {
+          "text": "New Features",
+          "bullet": true,
+          "level": 0
+        },
+        {
+          "text": "Technical Improvements",
+          "bullet": true,
+          "level": 0
+        },
+        {
+          "text": "Timeline",
+          "bullet": true,
+          "level": 0
+        },
+        {
+          "text": "Next Steps",
+          "bullet": true,
+          "level": 0
+        }
+      ]
+    }
+  },
+  "slide-2": {
+    "shape-0": {
+      "paragraphs": [
+        {
+          "text": "01",
+          "bold": true,
+          "font_size": 72.0
+        }
+      ]
+    },
+    "shape-1": {
+      "paragraphs": [
+        {
+          "text": "New Features",
+          "bold": true,
+          "font_size": 48.0
+        }
+      ]
+    },
+    "shape-2": {
+      "paragraphs": [
+        {
+          "text": "Customer-Driven Innovation",
+          "font_size": 24.0
+        }
+      ]
+    }
+  },
+  "slide-3": {
+    "shape-0": {
+      "paragraphs": [
+        {
+          "text": "What We're Building",
+          "bold": true,
+          "font_size": 32.0
+        }
+      ]
+    },
+    "shape-1": {
+      "paragraphs": [
+        {
+          "text": "This quarter we're focused on two major initiatives that will transform how our customers interact with our platform. These features are based on direct feedback from our top enterprise clients and address their most pressing needs."
+        },
+        {
+          "text": "Our mobile redesign brings a modern, intuitive interface that matches current user expectations. The advanced analytics dashboard provides real-time insights that were previously only available through custom reports."
+        }
+      ]
+    }
+  },
+  "slide-4": {
+    "shape-0": {
+      "paragraphs": [
+        {
+          "text": "Feature Highlights",
+          "bold": true,
+          "font_size": 32.0
+        }
+      ]
+    },
+    "shape-1": {
+      "paragraphs": [
+        {
+          "text": "Mobile App Redesign",
+          "bold": true,
+          "font_size": 20.0
+        },
+        {
+          "text": "Complete UI overhaul with modern design patterns",
+          "bullet": true,
+          "level": 0
+        },
+        {
+          "text": "Improved performance and offline capabilities",
+          "bullet": true,
+          "level": 0
+        },
+        {
+          "text": "Streamlined user flows based on usage data",
+          "bullet": true,
+          "level": 0
+        }
+      ]
+    },
+    "shape-2": {
+      "paragraphs": [
+        {
+          "text": "Advanced Analytics Dashboard",
+          "bold": true,
+          "font_size": 20.0
+        },
+        {
+          "text": "Real-time data visualization and monitoring",
+          "bullet": true,
+          "level": 0
+        },
+        {
+          "text": "Customizable metrics and KPI tracking",
+          "bullet": true,
+          "level": 0
+        },
+        {
+          "text": "Export and sharing capabilities",
+          "bullet": true,
+          "level": 0
+        }
+      ]
+    }
+  },
+  "slide-5": {
+    "shape-0": {
+      "paragraphs": [
+        {
+          "text": "02",
+          "bold": true,
+          "font_size": 72.0
+        }
+      ]
+    },
+    "shape-1": {
+      "paragraphs": [
+        {
+          "text": "Delivery Timeline",
+          "bold": true,
+          "font_size": 48.0
+        }
+      ]
+    },
+    "shape-2": {
+      "paragraphs": [
+        {
+          "text": "Rolling out through Q1",
+          "font_size": 24.0
+        }
+      ]
+    }
+  },
+  "slide-6": {
+    "shape-0": {
+      "paragraphs": [
+        {
+          "text": "Next Steps",
+          "bold": true,
+          "font_size": 32.0
+        }
+      ]
+    },
+    "shape-1": {
+      "paragraphs": [
+        {
+          "text": "Week 1: Begin beta testing with selected customers",
+          "bullet": true,
+          "level": 0
+        },
+        {
+          "text": "Week 4: Gather feedback and iterate on designs",
+          "bullet": true,
+          "level": 0
+        },
+        {
+          "text": "Week 8: Staged rollout to all customers",
+          "bullet": true,
+          "level": 0
+        },
+        {
+          "text": "Week 12: Full release and documentation update",
+          "bullet": true,
+          "level": 0
+        }
+      ]
+    }
+  }
+}

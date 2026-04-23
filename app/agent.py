@@ -48,16 +48,29 @@ from google.adk.models.llm_response import LlmResponse
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.adk.skills import load_skill_from_dir
-from google.adk.tools.mcp_tool import McpToolset
-from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.skill_toolset import SkillToolset
 from google.genai import types
-from mcp import StdioServerParameters
 
 from app.config import DEFAULT_MODEL
 from app.session_keys import A2UI_CATALOG_KEY, A2UI_ENABLED_KEY, A2UI_EXAMPLES_KEY
+from app.sub_agents import get_search_agent
 from app.tools import find_restaurants, get_directions
-from app.workspace_tools import append_doc_text, create_doc, share_doc
+from app.workspace_tools import (
+    append_doc_text,
+    append_sheet_data,
+    apply_presentation_replacements,
+    create_doc,
+    create_sheet,
+    extract_presentation_inventory,
+    read_doc,
+    read_drive_file,
+    read_local_file,
+    read_presentation,
+    read_sheet,
+    rearrange_presentation_slides,
+    share_doc,
+    upload_presentation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +157,7 @@ Your task is to analyze the user's request, fetch the necessary data, select the
     * **Quality Check**: After calling `find_restaurants`, inspect the JSON output. Every restaurant MUST have a valid rating (stars) and a non-empty description. If any restaurant only has an address, do NOT display it. Instead, call `find_restaurants` again to find alternative restaurants that have complete details.
 
 3.  **Select Example:** Based on the intent, choose the correct example.
-    * **Restaurant List** -> Use `---BEGIN RESTAURANT_SELECTION EXAMPLE---`.
+    * **Restaurant List** -> Use `---BEGIN RESTAURANT_SELECTION EXAMPLE---`. (Never use the Map example for lists).
     * **Map View** -> Use `---BEGIN MAP EXAMPLE---`. You MUST use the `send_a2ui_json_to_client` tool. Never respond with just plain text for map requests.
     * **Directions** -> Use `---BEGIN DIRECTIONS EXAMPLE---`.
     * **Restaurant Details** -> Respond with text only (no A2UI JSON).
@@ -162,6 +175,16 @@ Your task is to analyze the user's request, fetch the necessary data, select the
 
 
 **IMPORTANT RULES:**
+- **Presentation Generation via Template**: When the user asks to create a presentation, slide deck, or slides:
+  - 1. Call **`rearrange_presentation_slides`** mapping your required structure to template slide indices.
+  - 2. Call **`extract_presentation_inventory`** on the working file to discover shape IDs.
+  - 3. Create a replacement mapping and execute **`apply_presentation_replacements`**.
+  - 4. Call **`upload_presentation`** to convert the local artifact into Google Slides.
+
+
+- **No A2UI for Workspace Tasks**: When the user asks to create or read Google Docs, Sheets, or Slides, do NOT call the `send_a2ui_json_to_client` tool. Respond with text confirmation only after calling the appropriate workspace tools.
+
+
 - When the user asks for restaurant details, respond with **text only** in Markdown format. Do NOT call the A2UI tool.
 - For found restaurants (e.g. from buttons like 'Show on map'), use `send_a2ui_json_to_client` directly with the name and address you already have. Do NOT re-fetch the restaurant.
 - **Action button clicks**: If the user message starts with `Selected:` (e.g. `Selected: showOnMap`, `Selected: selectRestaurants`), the user clicked an A2UI button. You MUST respond by calling `send_a2ui_json_to_client` with the appropriate example — NEVER with text only. The restaurant name and address are in the action context; reuse them.
@@ -169,6 +192,11 @@ Your task is to analyze the user's request, fetch the necessary data, select the
 - For restaurant lists, map views, and directions, you MUST use the A2UI tool.
 - **Use Conversation History**: If the user refers to a location or restaurant mentioned previously (like "Urban Plates"), you MUST check the conversation history for its address. Do NOT ask the user for the address or search for it if it was already provided in the chat.
 - **Resolve Abbreviations**: Expand common abbreviations like "PLV" or "Plv" to "Playa Vista" when searching or getting directions to ensure robust queries.
+- **Workspace Documents**: If the user asks to create a Google Doc or summarize in Drive:
+  - First, call **`create_doc`** with a descriptive title.
+  - Second, call **`append_doc_text`** with the generated content.
+  - **CRITICAL:** Do NOT try to call a tool named `write`. You MUST use `create_doc` and `append_doc_text`.
+
 """
 
 UI_DESCRIPTION = """
@@ -180,6 +208,7 @@ UI_DESCRIPTION = """
     * **Template:** Use the JSON from `---BEGIN RESTAURANT_SELECTION EXAMPLE---`.
     * Populate the example with real restaurant data from the `find_restaurants` tool, following the example's structure exactly.
     * Each restaurant item should have: name, rating (★ characters), detail, address, infoLink.
+    * **CRITICAL:** For queries asking to find, search, or list multiple restaurants, you MUST use this template. Do NOT use the `MAP` template for list queries.
     * **Button labels MUST be copied verbatim from the example.** The two
       per-restaurant buttons are "Detailed Information" (action
       `selectRestaurants`) and "Show on Map" (action `showOnMap`). Do NOT
@@ -281,6 +310,7 @@ class RestaurantFinderAgent:
         self._session_service = InMemorySessionService()
         self._memory_service = InMemoryMemoryService()
         self._artifact_service = InMemoryArtifactService()
+        self._llm_agent = None
 
         # Build schema managers for both supported A2UI versions. The
         # active version is selected per-request in the executor based on
@@ -327,6 +357,20 @@ class RestaurantFinderAgent:
                         ),
                         examples_path=examples_path,
                     ),
+                    CatalogConfig(
+                        name="a2ui_restaurant_finder",
+                        provider=FileSystemCatalogProvider(
+                            CATALOG_DEFINITION_JSON_V0_8
+                        ),
+                        examples_path=examples_path,
+                    ),
+                    CatalogConfig(
+                        name="a2ui-restaurant-finder-catalog",
+                        provider=FileSystemCatalogProvider(
+                            CATALOG_DEFINITION_JSON_V0_8
+                        ),
+                        examples_path=examples_path,
+                    ),
                     BasicCatalog.get_config(version=version),
                 ],
                 accepts_inline_catalogs=True,
@@ -342,6 +386,24 @@ class RestaurantFinderAgent:
             catalogs=[
                 CatalogConfig(
                     name="restaurant_finder",
+                    provider=_MergedBasicCatalogProvider(
+                        version=version,
+                        custom_catalog_path=CATALOG_DEFINITION_JSON,
+                        catalog_id=custom_catalog_id,
+                    ),
+                    examples_path=examples_path,
+                ),
+                CatalogConfig(
+                    name="a2ui_restaurant_finder",
+                    provider=_MergedBasicCatalogProvider(
+                        version=version,
+                        custom_catalog_path=CATALOG_DEFINITION_JSON,
+                        catalog_id=custom_catalog_id,
+                    ),
+                    examples_path=examples_path,
+                ),
+                CatalogConfig(
+                    name="a2ui-restaurant-finder-catalog",
                     provider=_MergedBasicCatalogProvider(
                         version=version,
                         custom_catalog_path=CATALOG_DEFINITION_JSON,
@@ -404,6 +466,9 @@ class RestaurantFinderAgent:
 
     def _build_llm_agent(self) -> LlmAgent:
         """Builds the LLM agent with A2UI toolset (conditionally enabled)."""
+        if hasattr(self, "_llm_agent") and self._llm_agent:
+            return self._llm_agent
+
         model = Gemini(
             model=DEFAULT_MODEL,
             retry_options=types.HttpRetryOptions(attempts=3),
@@ -438,26 +503,22 @@ class RestaurantFinderAgent:
 
         workspace_skills = SkillToolset(
             skills=skills,
-            additional_tools=[create_doc, append_doc_text, share_doc],
-        )
-
-        workspace_mcp = McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command="node",
-                    args=[
-                        "/usr/lib/node_modules/@gemini-cli-extensions/workspace/scripts/start.js"
-                    ],
-                    env={
-                        "GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE": os.environ.get(
-                            "GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE", ""
-                        ),
-                        "GOOGLE_WORKSPACE_IMPERSONATE_USER": os.environ.get(
-                            "GOOGLE_WORKSPACE_IMPERSONATE_USER", ""
-                        ),
-                    },
-                )
-            )
+            additional_tools=[
+                create_doc,
+                append_doc_text,
+                share_doc,
+                create_sheet,
+                append_sheet_data,
+                upload_presentation,
+                read_doc,
+                read_sheet,
+                read_presentation,
+                read_drive_file,
+                read_local_file,
+                rearrange_presentation_slides,
+                extract_presentation_inventory,
+                apply_presentation_replacements,
+            ],
         )
 
         return LlmAgent(
@@ -475,10 +536,20 @@ class RestaurantFinderAgent:
                     a2ui_examples=_get_a2ui_examples,
                 ),
                 workspace_skills,
-                workspace_mcp,
                 create_doc,
                 append_doc_text,
                 share_doc,
+                create_sheet,
+                append_sheet_data,
+                upload_presentation,
+                read_doc,
+                read_sheet,
+                read_presentation,
+                read_drive_file,
+                read_local_file,
+                rearrange_presentation_slides,
+                extract_presentation_inventory,
+                apply_presentation_replacements,
             ],
-            sub_agents=[],
+            sub_agents=[get_search_agent()],
         )

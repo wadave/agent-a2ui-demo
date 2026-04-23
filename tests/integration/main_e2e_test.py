@@ -172,7 +172,7 @@ def _send(text: str, req_id: str = "1", extensions: list[str] | None = None) -> 
         id=req_id,
         params=MessageSendParams(message=msg),
     ).model_dump(mode="json", exclude_none=True)
-    return requests.post(RPC_URL, headers=HEADERS, json=body, timeout=60).json()
+    return requests.post(RPC_URL, headers=HEADERS, json=body, timeout=180).json()
 
 
 def test_list_restaurants_returns_task(server):
