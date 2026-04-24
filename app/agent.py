@@ -14,6 +14,7 @@
 
 """Restaurant Finder agent using A2UI SDK for GE UI integration."""
 
+import json
 import logging
 import os
 from typing import ClassVar
@@ -179,19 +180,14 @@ Your task is to analyze the user's request, fetch the necessary data, select the
 
 
 **IMPORTANT RULES:**
-- **Presentation Generation (template-based, MANDATORY for new decks)**: When the user asks to create a presentation, slide deck, or slides, you MUST use the `presentation-skill` workflow — never `gws_call`, never the Slides API directly, never any other shortcut. Steps:
-  1. Call `load_skill(skill_name="presentation-skill")` — required first step. Read every step in the returned instructions before continuing.
-  2. **Identify and load the source material BEFORE planning slides.** The user almost never wants a generic "About X" deck — they want their content turned into slides. Resolve where the content comes from in this order:
-     a. An explicit local path or Drive ID in the request → read it (`read_local_file`, `read_doc`, `read_drive_file`, or `read_presentation`).
-     b. A reference like "above info", "this doc", "the SDD", "the file I just opened", or "the search results we just got" → that means content already in the conversation or an open scratch file (e.g. `scratch/*.md`). Read the file from disk; do NOT rely on memory of what it might contain.
-     c. **Implicit conversation context (default for restaurant-finder requests).** If the recent conversation already contains restaurant data — `find_restaurants` tool output in this turn or any earlier turn, an A2UI restaurant-list surface you sent, restaurants the user named, or directions you fetched — that data IS the source. Use it directly. Do NOT respond "I don't have any previous information about restaurants" when restaurant results are visible anywhere in the conversation history; scroll back and use them. Only fall to step (d) when the conversation truly contains no restaurant material AND the user gave no other source.
-     d. None of the above → ask the user what content the deck should cover. Do NOT proceed with placeholders or invented filler.
-     If you cannot produce concrete bullets/sentences for every body slide from the source material, STOP and ask — shipping a deck of generic restaurant prose for an SDD request is a bug, not a partial success. But the inverse is just as bad: refusing a deck request when restaurant data is plainly in the conversation forces the user to repeat themselves, which is also a bug.
-  3. **Plan an outline that mirrors the source.** Build one body slide per logical section of the source (e.g. each H2 in a markdown doc, each major restaurant, each result). The deck MUST contain at least one body slide per outline section. With the bundled 5-slide template the layout is: 0=cover, 1=TOC, 2=section divider (title only), 3=body content page (title + body — the workhorse), 4=closing. Every deck starts at 0, ends at 4, and includes at least one body slide (index 2 or 3) between them. Repeat index 3 once per outline section, e.g. `[0, 1, 3, 3, 3, 4]` for a 3-section deck. `[0, 4]` and `[0, 1, 4]` are rejected by the tool. **Empty-text placeholders in the inventory are real shapes that MUST be filled** — slide 3's title/body and slide 1's TOC entry titles are empty by default but are precisely where the user's content goes.
-  4. Follow the skill's workflow exactly: `rearrange_presentation_slides` → `extract_presentation_inventory` → read the inventory with `read_local_file` → `apply_presentation_replacements_data` → `upload_presentation`.
-  5. **DO NOT use `gws_call(service="slides", method="create", ...)` to create a deck.** That produces a blank Google Slides API deck with no template content — exactly what we want to avoid. The `gws-slides` skill is for *reading and modifying existing* presentations, not creating new ones.
-  6. After `apply_presentation_replacements_data`, read the `data.log` summary. If `J shape(s) left untouched` reports `J > 0`, the deck still has template "Lorem ipsum" / "placeholder" text. Either go back and add replacement entries for the missing shapes, or refuse to upload and tell the user the deck is incomplete.
-  7. Only call `upload_presentation` once `data.log` reports `0 shape(s) left untouched` AND the body slides actually contain text drawn from the source material identified in step 2.
+- **Presentation Generation (template-based, MANDATORY for new decks)**: When the user asks to create a presentation, slide deck, or slides, you MUST use the `presentation-skill` workflow — never `gws_call`, never the Slides API directly. Steps:
+  1. Call `load_skill(skill_name="presentation-skill")` first.
+  2. **Source the content from this conversation.** The harness automatically inlines any prior `find_restaurants` results into a `[SYSTEM REMINDER] === Restaurant data from this conversation ===` block when it sees a presentation request — use that data verbatim, one body slide per restaurant. If no system reminder appears AND no other source is referenced (a file path, a Drive ID, an open scratch doc), then and only then ask the user what to cover.
+  3. **Plan the outline.** Bundled 5-slide template indices: `0`=cover, `1`=TOC (5 entry-title placeholders), `2`=section divider, `3`=body content page (title + body — the workhorse), `4`=closing. Every deck starts at `0`, ends at `4`, includes at least one body slide. For N restaurants use `[0, 1] + [3]*N + [4]`. Empty placeholders in the inventory are real shapes that MUST be filled.
+  4. Workflow: `rearrange_presentation_slides` → `extract_presentation_inventory` → `read_local_file` (the inventory) → `apply_presentation_replacements_data` → `upload_presentation`.
+  5. **NEVER** use `gws_call(service="slides", method="create", ...)` to create a deck — that bypasses the template.
+  6. After apply, read `data.log`. If `J shape(s) left untouched > 0`, go back and add replacement entries for the missing shapes before uploading.
+  7. Only call `upload_presentation` once `data.log` reports `0 shape(s) left untouched`.
 
 
 
@@ -282,18 +278,88 @@ _TOOL_CALL_REMINDER = (
     "is exactly the failure case. Call the tool NOW."
 )
 
+_PRESENTATION_KEYWORDS = (
+    "presentation",
+    "slide deck",
+    "slidedeck",
+    "slides",
+    " deck",  # leading space avoids matching "decked" etc.
+    "pptx",
+    "powerpoint",
+    ".pptx",
+)
 
-def _inject_tool_reminder(
+_PRESENTATION_CONTEXT_PREAMBLE = (
+    "\n\n[SYSTEM REMINDER] The user is requesting a presentation/deck. "
+    "Restaurant data from earlier turns of THIS conversation is reproduced "
+    "below — it came from prior `find_restaurants` tool responses still in "
+    "your session events. USE THIS DATA as the source for the deck. Do NOT "
+    "respond 'I don't have any previous information' or 'Could you let me "
+    "know which city...' — that exact response is the failure mode this "
+    "reminder exists to prevent. Build the outline from these restaurants, "
+    "one body slide per restaurant, then run the presentation-skill workflow.\n\n"
+    "=== Restaurant data from this conversation ===\n"
+)
+
+
+def _extract_function_response_payload(fr) -> str | None:
+    """Pull the actual return value out of a function_response part.
+
+    ADK wraps tool returns in a few shapes depending on version. Try the
+    common keys, fall back to a JSON dump.
+    """
+    resp = getattr(fr, "response", None)
+    if resp is None:
+        return None
+    if isinstance(resp, str):
+        return resp
+    if isinstance(resp, dict):
+        for key in ("result", "response", "value", "output"):
+            if key in resp:
+                inner = resp[key]
+                return inner if isinstance(inner, str) else json.dumps(inner)
+        try:
+            return json.dumps(resp)
+        except (TypeError, ValueError):
+            return str(resp)
+    return str(resp)
+
+
+def _collect_recent_restaurant_data(events) -> str | None:
+    """Walk session events newest-first; return the most recent
+    `find_restaurants` tool response as a string, or None if no
+    restaurant data exists in this session.
+    """
+    for event in reversed(events or []):
+        content = getattr(event, "content", None)
+        if not content or not getattr(content, "parts", None):
+            continue
+        for part in content.parts:
+            fr = getattr(part, "function_response", None)
+            if fr and getattr(fr, "name", None) == "find_restaurants":
+                payload = _extract_function_response_payload(fr)
+                if payload:
+                    return payload
+    return None
+
+
+def _before_model_callback(
     callback_context: CallbackContext, llm_request: LlmRequest
 ) -> LlmResponse | None:
-    """Inject a reminder to call the A2UI tool when the user intent requires UI.
+    """Inject reminders on the way into the model:
 
-    This prevents the model from responding with text-only ("Here you go:")
-    when it should be calling send_a2ui_json_to_client.
+    1. A2UI tool-call reminder when the user's intent needs visual UI.
+    2. Inline restaurant data from prior `find_restaurants` results when
+       the user asks for a presentation. Putting the data right next to
+       the directive is the only reliable way to stop the model from
+       falsely claiming "I don't have any previous information" — prompt
+       rules alone have proven insufficient.
     """
-    # Find the last user message
+    events = callback_context.session.events or []
+
+    # Find the most recent user message
     last_user_msg = ""
-    for event in reversed(callback_context.session.events or []):
+    for event in reversed(events):
         if event.author == "user" and event.content and event.content.parts:
             for part in event.content.parts:
                 if part.text:
@@ -304,13 +370,80 @@ def _inject_tool_reminder(
     if not last_user_msg:
         return None
 
-    # Check if the user's request needs a UI tool call
-    needs_ui = any(kw in last_user_msg for kw in _UI_KEYWORDS)
-    if not needs_ui:
-        return None
+    extra_instructions: list[str] = []
 
-    # Append a strong reminder to the request instructions
-    llm_request.append_instructions([_TOOL_CALL_REMINDER])
+    needs_ui = any(kw in last_user_msg for kw in _UI_KEYWORDS)
+    is_presentation = any(kw in last_user_msg for kw in _PRESENTATION_KEYWORDS)
+
+    if needs_ui:
+        extra_instructions.append(_TOOL_CALL_REMINDER)
+
+    if is_presentation:
+        # Diagnostic: enumerate every event so we can see what (if anything)
+        # earlier turns deposited into this session. If the list is short
+        # or empty when the user "previously searched", the client is
+        # sending a fresh context_id per turn and the search results never
+        # made it here.
+        event_summary: list[str] = []
+        function_responses: list[str] = []
+        function_calls: list[str] = []
+        for ev in events:
+            author = getattr(ev, "author", "?")
+            content = getattr(ev, "content", None)
+            if not content or not getattr(content, "parts", None):
+                event_summary.append(f"{author}:<no-parts>")
+                continue
+            kinds = []
+            for part in content.parts:
+                if getattr(part, "text", None):
+                    kinds.append(f"text({len(part.text)}b)")
+                fr = getattr(part, "function_response", None)
+                if fr:
+                    name = getattr(fr, "name", "?")
+                    kinds.append(f"fn_resp({name})")
+                    function_responses.append(name)
+                fc = getattr(part, "function_call", None)
+                if fc:
+                    name = getattr(fc, "name", "?")
+                    kinds.append(f"fn_call({name})")
+                    function_calls.append(name)
+            event_summary.append(f"{author}:[{','.join(kinds)}]")
+
+        restaurant_payload = _collect_recent_restaurant_data(events)
+        if restaurant_payload:
+            if len(restaurant_payload) > 16_000:
+                restaurant_payload = (
+                    restaurant_payload[:16_000]
+                    + "\n... [truncated; full data in conversation history]"
+                )
+            extra_instructions.append(
+                _PRESENTATION_CONTEXT_PREAMBLE + restaurant_payload
+            )
+            logger.warning(
+                "[before_model_callback] presentation request — INJECTED"
+                " %d bytes of restaurant data. session_events=%d"
+                " fn_calls=%s fn_responses=%s",
+                len(restaurant_payload),
+                len(events),
+                function_calls,
+                function_responses,
+            )
+        else:
+            logger.warning(
+                "[before_model_callback] presentation request but NO"
+                " find_restaurants response found. session_id=%s"
+                " session_events=%d fn_calls=%s fn_responses=%s"
+                " event_summary=%s last_user_msg=%r",
+                getattr(callback_context.session, "id", "?"),
+                len(events),
+                function_calls,
+                function_responses,
+                event_summary,
+                last_user_msg[:200],
+            )
+
+    if extra_instructions:
+        llm_request.append_instructions(extra_instructions)
     return None
 
 
@@ -576,7 +709,7 @@ class RestaurantFinderAgent:
             name=self._agent_name,
             description="Restaurant Finder Agent using Google Maps",
             instruction=instruction,
-            before_model_callback=_inject_tool_reminder,
+            before_model_callback=_before_model_callback,
             tools=[
                 find_restaurants,
                 get_directions,

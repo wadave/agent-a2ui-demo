@@ -85,6 +85,25 @@ def duplicate_slide(pres, index):
     for _rel_id, rel in source.part.rels.items():
         if "image" in rel.reltype or "media" in rel.reltype:
             new_slide.part.rels.get_or_add(rel.reltype, rel._target)
+
+    # Copy the source slide's background override (`<p:bg>`) if it has
+    # one. `add_slide(layout)` only carries over the layout's default
+    # background, so a source slide with a per-slide solid/gradient
+    # background (e.g. the dark cover RGB 202125 or the black thank-you
+    # RGB 000000) was previously rendered with the layout's white default,
+    # which broke the contrast the template was designed around.
+    p_ns = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
+    src_csld = source.element.find(f"{p_ns}cSld")
+    src_bg = src_csld.find(f"{p_ns}bg") if src_csld is not None else None
+    if src_bg is not None:
+        dst_csld = new_slide.element.find(f"{p_ns}cSld")
+        if dst_csld is not None:
+            existing = dst_csld.find(f"{p_ns}bg")
+            if existing is not None:
+                dst_csld.remove(existing)
+            # `<p:bg>` must be the first child of `<p:cSld>`.
+            dst_csld.insert(0, deepcopy(src_bg))
+
     for shape in new_slide.shapes:
         sp = shape.element
         sp.getparent().remove(sp)

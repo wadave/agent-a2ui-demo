@@ -12,6 +12,18 @@ export interface A2UIMessage {
 export class RestaurantA2UIClient {
   #rpcEndpoint: string | null = null;
   #requestId = 0;
+  // A2A `contextId` groups related messages into a single conversation
+  // server-side. Without it, the agent's `_prepare_session` allocates a
+  // fresh InMemorySessionService session per request, so the LLM cannot
+  // see prior turns (find_restaurants results, A2UI surfaces, etc.).
+  // We generate one per client instance — i.e. once per page load — so
+  // every message in this chat threads into the same server session.
+  #contextId: string = crypto.randomUUID();
+
+  /** Reset the conversation. The next message starts a fresh server-side session. */
+  resetConversation(): void {
+    this.#contextId = crypto.randomUUID();
+  }
 
   async #getRpcEndpoint(): Promise<string> {
     if (this.#rpcEndpoint) return this.#rpcEndpoint;
@@ -54,6 +66,7 @@ export class RestaurantA2UIClient {
       params: {
         message: {
           messageId: crypto.randomUUID(),
+          contextId: this.#contextId,
           role: "user",
           parts,
           kind: "message",
