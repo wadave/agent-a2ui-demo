@@ -1,0 +1,64 @@
+[
+  {
+    "version": "v0.9",
+    "createSurface": {
+      "surfaceId": "drive-file-preview",
+      "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"
+    }
+  },
+  {
+    "version": "v0.9",
+    "updateComponents": {
+      "surfaceId": "drive-file-preview",
+      "components": [
+        {
+          "id": "root",
+          "component": "Column",
+          "justify": "start",
+          "align": "stretch",
+          "children": [
+            "preview-title",
+            "preview-subtitle",
+            "preview-frame",
+            "preview-link"
+          ]
+        },
+        {
+          "id": "preview-title",
+          "component": "Text",
+          "variant": "h2",
+          "text": { "path": "/title" }
+        },
+        {
+          "id": "preview-subtitle",
+          "component": "Text",
+          "variant": "caption",
+          "text": { "path": "/subtitle" }
+        },
+        {
+          "id": "preview-frame",
+          "component": "WebFrameUrl",
+          "url": { "path": "/previewUrl" }
+        },
+        {
+          "id": "preview-link",
+          "component": "Text",
+          "text": { "path": "/openLink" }
+        }
+      ]
+    }
+  },
+  {
+    "version": "v0.9",
+    "updateDataModel": {
+      "surfaceId": "drive-file-preview",
+      "path": "/",
+      "value": {
+        "title": "2026-04-24 Playa Vista Restaurant Tour",
+        "subtitle": "Google Slides — saved in Documents",
+        "previewUrl": "https://drive.google.com/file/d/FILE_ID_HERE/preview",
+        "openLink": "[Open in Drive](https://drive.google.com/file/d/FILE_ID_HERE/view)"
+      }
+    }
+  }
+]

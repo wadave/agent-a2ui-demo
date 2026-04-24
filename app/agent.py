@@ -70,6 +70,7 @@ from app.workspace_tools import (
     read_presentation,
     read_sheet,
     rearrange_presentation_slides,
+    share_anyone_with_link,
     share_doc,
     upload_presentation,
 )
@@ -191,7 +192,12 @@ Your task is to analyze the user's request, fetch the necessary data, select the
 
 
 
-- **No A2UI for Workspace Tasks**: When the user asks to create or read Google Docs, Sheets, or Slides, do NOT call the `send_a2ui_json_to_client` tool. Respond with text confirmation only after calling the appropriate workspace tools.
+- **A2UI Drive Preview after creating workspace artifacts**: After `upload_presentation`, `create_doc`, or `create_sheet` returns successfully (`{"ok": True, "data": {"file_id": "...", "url": "..."}}`), do these THREE steps before answering:
+  1. Call `share_anyone_with_link(file_id="<file_id>")` so the preview iframe loads for the user (the file is owned by the agent's service account; without this the iframe shows a "request access" page).
+  2. Call `send_a2ui_json_to_client` using the `---BEGIN DRIVE_PREVIEW EXAMPLE---` template. Replace the literal `FILE_ID_HERE` in BOTH the `previewUrl` and `openLink` (in v0.9, set the values inside `updateDataModel.value`; in v0.8, substitute `FILE_ID_HERE` everywhere it appears in the literalString fields). Set `title` to the file name and `subtitle` to one of `"Google Slides — saved in <Folder>"` / `"Google Docs — saved in <Folder>"` / `"Google Sheets — saved in <Folder>"`. Use folder name `Drive root` if no folder was specified.
+  3. Emit a short plain-text confirmation alongside the tool call (e.g. `"Saved as 'restaurants0' in Documents:"`) — never tool-call only, never text-only.
+
+  Read-only workspace operations (`read_doc`, `read_sheet`, `read_presentation`, `read_drive_file`) still respond with text only — no A2UI surface for those.
 
 
 - When the user asks for restaurant details, respond with **text only** in Markdown format. Do NOT call the A2UI tool.
@@ -543,6 +549,16 @@ class RestaurantFinderAgent:
         # Stamp with the standard A2UI basic catalog ID so renderers (Gemini Enterprise,
         # the local Lit shell) recognize the createSurface.catalogId.
         custom_catalog_id = "https://a2ui.org/specification/v0_9/basic_catalog.json"
+        # NOTE on catalog registration: A2uiSchemaManager keys
+        # `_catalog_example_paths` by `catalog.catalog_id`. Every config
+        # below resolves to the same standard v0.9 basic_catalog id (the
+        # custom variants must claim it for renderer compatibility, and
+        # the bundled BasicCatalog uses it natively), so the LAST entry
+        # in this list wins for examples_path. Pass `examples_path` on
+        # the bundled basic catalog too, otherwise it overwrites the
+        # custom catalogs' path with None and the LLM sees no examples.
+        # Selection (which catalog is sent to the renderer) still picks
+        # the first entry — keep a custom-with-WebFrameUrl variant first.
         return A2uiSchemaManager(
             version=version,
             catalogs=[
@@ -573,7 +589,7 @@ class RestaurantFinderAgent:
                     ),
                     examples_path=examples_path,
                 ),
-                BasicCatalog.get_config(version=version),
+                BasicCatalog.get_config(version=version, examples_path=examples_path),
             ],
             accepts_inline_catalogs=True,
             schema_modifiers=[remove_strict_validation],
@@ -728,6 +744,7 @@ class RestaurantFinderAgent:
                 create_doc,
                 append_doc_text,
                 share_doc,
+                share_anyone_with_link,
                 create_sheet,
                 append_sheet_data,
                 read_doc,

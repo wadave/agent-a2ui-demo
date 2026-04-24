@@ -405,6 +405,39 @@ def share_doc(
         )
 
 
+def share_anyone_with_link(
+    file_id: str,
+    role: Literal["reader", "commenter", "writer"] = "reader",
+) -> dict[str, Any]:
+    """Grant 'anyone with the link' access to a Drive file.
+
+    Required so the A2UI Drive-preview iframe (`/preview` URL) loads for
+    the user in the browser. Without this, the file is private to the
+    service account that created it and the iframe shows a "request
+    access" page.
+    """
+    body = {"type": "anyone", "role": role}
+    if _USE_ADC:
+        try:
+            drive_service = _get_service("drive", "v3")
+            drive_service.permissions().create(fileId=file_id, body=body).execute()
+            return {"ok": True}
+        except HttpError as e:
+            return {"ok": False, "error": str(e)}
+    else:
+        return _run_gws(
+            [
+                "drive",
+                "permissions",
+                "create",
+                "--params",
+                json.dumps({"fileId": file_id}),
+                "--json",
+                json.dumps(body),
+            ]
+        )
+
+
 def create_sheet(title: str, folder_name: str | None = None) -> dict[str, Any]:
     """Create empty Sheet."""
     if _USE_ADC:
