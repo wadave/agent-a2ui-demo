@@ -24,13 +24,21 @@ from typing import Any, Literal
 
 import google.auth
 import google.auth.compute_engine
-from google.auth import impersonated_credentials
+from google.auth import iam
+from google.auth.transport.requests import Request as AuthRequest
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 logger = logging.getLogger(__name__)
 
 _USE_ADC = os.getenv("K_SERVICE") is not None or os.getenv("USE_ADC") == "TRUE"
+# Workspace user the SA acts as via Domain-Wide Delegation. Required on
+# Cloud Run because service accounts have zero Drive storage quota in
+# Workspace orgs and cannot create files as themselves. The SA must be
+# authorized in admin.google.com → Security → API controls → Domain Wide
+# Delegation, with the OAuth scopes listed in _SCOPES below.
+_WORKSPACE_USER_EMAIL = os.getenv("WORKSPACE_USER_EMAIL", "").strip()
 
 # Resolve presentation-skill paths relative to this file so the slide tools
 # work regardless of where the repo is checked out.
@@ -92,24 +100,54 @@ def _get_service(service_name: str, version: str):
     carry full Workspace scopes, so we skip impersonation in that case.
     """
     source_credentials, _ = google.auth.default()
-    if isinstance(source_credentials, google.auth.compute_engine.Credentials):
-        # On Cloud Run / GCE, compute_engine.Credentials starts with
-        # service_account_email == "default" until refreshed against the
-        # metadata server. Refresh first so we can read the real SA email
-        # and pass it as target_principal for self-impersonation.
-        from google.auth.transport.requests import Request
-
-        source_credentials.refresh(Request())
-        sa_email = source_credentials.service_account_email
-        if not sa_email or sa_email == "default":
+    logger.info(
+        "_get_service: USE_ADC=%s WORKSPACE_USER_EMAIL=%r source_credentials=%s",
+        _USE_ADC,
+        _WORKSPACE_USER_EMAIL,
+        type(source_credentials).__name__,
+    )
+    if _USE_ADC:
+        if not _WORKSPACE_USER_EMAIL:
             raise RuntimeError(
-                "Could not resolve runtime SA email from metadata server"
+                "WORKSPACE_USER_EMAIL is not set. Workspace APIs require "
+                "Domain-Wide Delegation on Cloud Run because service accounts "
+                "have no Drive storage quota. Set WORKSPACE_USER_EMAIL to a "
+                "real Workspace user the SA should impersonate, and authorize "
+                "the SA in admin.google.com (Security → API controls → "
+                "Domain Wide Delegation)."
             )
-        credentials = impersonated_credentials.Credentials(
-            source_credentials=source_credentials,
-            target_principal=sa_email,
-            target_scopes=_SCOPES,
-            lifetime=3600,
+
+        # Resolve the SA email so we can name the IAM Signer principal.
+        sa_email = getattr(source_credentials, "service_account_email", None)
+        if sa_email == "default" and hasattr(source_credentials, "refresh"):
+            source_credentials.refresh(AuthRequest())
+            sa_email = source_credentials.service_account_email
+        if not sa_email or sa_email == "default":
+            import urllib.request
+
+            req = urllib.request.Request(
+                "http://metadata.google.internal/computeMetadata/v1/"
+                "instance/service-accounts/default/email",
+                headers={"Metadata-Flavor": "Google"},
+            )
+            sa_email = urllib.request.urlopen(req, timeout=2).read().decode().strip()
+
+        # Domain-Wide Delegation: build a service_account.Credentials with
+        # subject=<workspace user>. The IAM Signer signs the JWT remotely
+        # via the IAM Credentials API (no SA key file needed). The SA must
+        # be authorized in admin.google.com for the scopes in _SCOPES.
+        signer = iam.Signer(AuthRequest(), source_credentials, sa_email)
+        credentials = service_account.Credentials(
+            signer=signer,
+            service_account_email=sa_email,
+            token_uri="https://oauth2.googleapis.com/token",
+            scopes=_SCOPES,
+            subject=_WORKSPACE_USER_EMAIL,
+        )
+        logger.info(
+            "_get_service: DWD-impersonating user %s as SA %s",
+            _WORKSPACE_USER_EMAIL,
+            sa_email,
         )
     else:
         # User credentials (gcloud auth application-default login) or
