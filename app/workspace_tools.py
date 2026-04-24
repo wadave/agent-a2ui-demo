@@ -971,8 +971,47 @@ def rearrange_presentation_slides(
         indices: List of 0-based slide indices from the template to include.
     """
     script_path = _PRESENTATION_SKILL_CLI
-    if not template_path:
+    using_default_template = not template_path
+    if using_default_template:
         template_path = _PRESENTATION_SKILL_DEFAULT_TEMPLATE
+
+    # Guard against the most common failure mode: the LLM picks
+    # `[0, 4]` or `[0, 1, 4]` (cover + maybe TOC + closing) and ships a
+    # deck with no body content. The bundled template has 5 slides:
+    #   0 = cover, 1 = table of contents, 2 = section header,
+    #   3 = blank (image-only), 4 = closing 'Thank you'.
+    # NOTE: this template only supports section-header body slides
+    # (index 2). For paragraph/bullet body content the caller must
+    # supply a custom `template_path` with richer body layouts.
+    if using_default_template:
+        body_indices = [i for i in indices if i not in (0, 1, 4)]
+        problems: list[str] = []
+        if not indices or indices[0] != 0:
+            problems.append("must start with index 0 (cover)")
+        if not indices or indices[-1] != 4:
+            problems.append("must end with index 4 (closing 'Thank you')")
+        if len(body_indices) < 1:
+            problems.append(
+                f"needs at least 1 body slide between cover and closing"
+                f" (got {len(body_indices)}: {body_indices})."
+                f" A deck of just [0, 4] or [0, 1, 4] has no content —"
+                f" repeat index 2 (section-header layout) once per outline"
+                f" section, e.g. [0, 1, 2, 2, 2, 4] for 3 sections."
+            )
+        for idx in indices:
+            if idx < 0 or idx > 4:
+                problems.append(
+                    f"index {idx} out of range — bundled template has 5"
+                    f" slides (indices 0-4). Supply a custom template_path"
+                    f" if you need richer body layouts."
+                )
+                break
+        if problems:
+            return {
+                "ok": False,
+                "error": "Invalid slide indices: " + "; ".join(problems),
+            }
+
     indices_str = ",".join(map(str, indices))
     try:
         result = subprocess.run(

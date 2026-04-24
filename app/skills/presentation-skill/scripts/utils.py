@@ -433,7 +433,12 @@ def collect_shapes(
             res.extend(collect_shapes(s, left + shape.left, top + shape.top, slide))
         return res
 
-    if hasattr(shape, "text_frame") and shape.text_frame.text.strip():
+    # Include every shape with a text_frame, even if its current text is
+    # empty. Empty placeholders (e.g. the body area on the BLANK_1 content
+    # slide, or the entry titles next to each "01"-"05" on the TOC slide)
+    # are precisely what the LLM needs to fill — silently dropping them
+    # left whole body slides un-addressable and shipped blank.
+    if hasattr(shape, "text_frame"):
         if hasattr(shape, "is_placeholder") and shape.is_placeholder:
             if str(shape.placeholder_format.type).endswith("SLIDE_NUMBER"):
                 return []

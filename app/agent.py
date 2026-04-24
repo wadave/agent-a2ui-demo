@@ -139,7 +139,9 @@ If the `send_a2ui_json_to_client` tool is available to you, you MUST use it with
    - No unescaped newlines or tabs inside string values.
    - Use straight ASCII quotes `"`, never smart quotes `\u201c` `\u201d`.
 6. The whole `a2ui_json` argument is a JSON ARRAY of A2UI messages as shown in the catalog examples. Never merge multiple message types into one object.
-7. **Always emit a short plain-text intro alongside the tool call**, e.g. "Here are 5 restaurants near Google Playa Vista:" or "Showing the map for Urban Plates:". The text and the tool call are part of the same response. The text serves as a graceful fallback for clients that cannot render rich A2UI; do NOT skip it.
+7. **Exactly ONE top-level JSON value.** The string starts with `[`, ends with the matching `]`, and contains nothing else — no trailing object, no second array, no markdown fence, no narration. To send N messages, put them as N elements inside the SAME array (`[msg1, msg2, msg3]`). Do NOT concatenate multiple arrays (`[msg1][msg2]` is broken — the parser fails with `Extra data: ...` and the UI never renders).
+8. **One tool call per response.** If the user's request needs multiple A2UI messages (e.g. createSurface + dataModelUpdate), put them all in the single `a2ui_json` array of one `send_a2ui_json_to_client` call — do NOT make two back-to-back calls and do NOT emit a second JSON value as a workaround.
+9. **Always emit a short plain-text intro alongside the tool call**, e.g. "Here are 5 restaurants near Google Playa Vista:" or "Showing the map for Urban Plates:". The text and the tool call are part of the same response. The text serves as a graceful fallback for clients that cannot render rich A2UI; do NOT skip it.
 """
 
 WORKFLOW_DESCRIPTION = """
@@ -150,6 +152,7 @@ Your task is to analyze the user's request, fetch the necessary data, select the
     * "Show it on the map" -> **Intent:** Map View.
     * "How do I get there?" -> **Intent:** Directions.
     * "Tell me about Han Dynasty" -> **Intent:** Restaurant Details (text only).
+    * "What's the weather in Playa Vista?" / "Will it rain tomorrow?" -> **Intent:** Weather / live web lookup. Delegate to the `search_agent` sub-agent (it has Google Search grounding) and return its findings as plain text with source attribution. Do NOT call `send_a2ui_json_to_client` for weather responses.
 
 2.  **Fetch Data:** Select and use the appropriate tool.
     * Use **`find_restaurants`** for searching restaurants by query. Always pass the complete location context.
@@ -178,10 +181,17 @@ Your task is to analyze the user's request, fetch the necessary data, select the
 **IMPORTANT RULES:**
 - **Presentation Generation (template-based, MANDATORY for new decks)**: When the user asks to create a presentation, slide deck, or slides, you MUST use the `presentation-skill` workflow — never `gws_call`, never the Slides API directly, never any other shortcut. Steps:
   1. Call `load_skill(skill_name="presentation-skill")` — required first step. Read every step in the returned instructions before continuing.
-  2. Follow the skill's workflow exactly: `rearrange_presentation_slides` → `extract_presentation_inventory` → read the inventory with `read_local_file` → `apply_presentation_replacements_data` → `upload_presentation`.
-  3. **DO NOT use `gws_call(service="slides", method="create", ...)` to create a deck.** That produces a blank Google Slides API deck with no template content — exactly what we want to avoid. The `gws-slides` skill is for *reading and modifying existing* presentations, not creating new ones.
-  4. After `apply_presentation_replacements_data`, read the `data.log` summary. If `J shape(s) left untouched` reports `J > 0`, the deck still has template "Lorem ipsum" / "placeholder" text. Either go back and add replacement entries for the missing shapes, or refuse to upload and tell the user the deck is incomplete.
-  5. Only call `upload_presentation` once `data.log` reports `0 shape(s) left untouched`.
+  2. **Identify and load the source material BEFORE planning slides.** The user almost never wants a generic "About X" deck — they want their content turned into slides. Resolve where the content comes from in this order:
+     a. An explicit local path or Drive ID in the request → read it (`read_local_file`, `read_doc`, `read_drive_file`, or `read_presentation`).
+     b. A reference like "above info", "this doc", "the SDD", "the file I just opened", or "the search results we just got" → that means content already in the conversation or an open scratch file (e.g. `scratch/*.md`). Read the file from disk; do NOT rely on memory of what it might contain.
+     c. **Implicit conversation context (default for restaurant-finder requests).** If the recent conversation already contains restaurant data — `find_restaurants` tool output in this turn or any earlier turn, an A2UI restaurant-list surface you sent, restaurants the user named, or directions you fetched — that data IS the source. Use it directly. Do NOT respond "I don't have any previous information about restaurants" when restaurant results are visible anywhere in the conversation history; scroll back and use them. Only fall to step (d) when the conversation truly contains no restaurant material AND the user gave no other source.
+     d. None of the above → ask the user what content the deck should cover. Do NOT proceed with placeholders or invented filler.
+     If you cannot produce concrete bullets/sentences for every body slide from the source material, STOP and ask — shipping a deck of generic restaurant prose for an SDD request is a bug, not a partial success. But the inverse is just as bad: refusing a deck request when restaurant data is plainly in the conversation forces the user to repeat themselves, which is also a bug.
+  3. **Plan an outline that mirrors the source.** Build one body slide per logical section of the source (e.g. each H2 in a markdown doc, each major restaurant, each result). The deck MUST contain at least one body slide per outline section. With the bundled 5-slide template the layout is: 0=cover, 1=TOC, 2=section divider (title only), 3=body content page (title + body — the workhorse), 4=closing. Every deck starts at 0, ends at 4, and includes at least one body slide (index 2 or 3) between them. Repeat index 3 once per outline section, e.g. `[0, 1, 3, 3, 3, 4]` for a 3-section deck. `[0, 4]` and `[0, 1, 4]` are rejected by the tool. **Empty-text placeholders in the inventory are real shapes that MUST be filled** — slide 3's title/body and slide 1's TOC entry titles are empty by default but are precisely where the user's content goes.
+  4. Follow the skill's workflow exactly: `rearrange_presentation_slides` → `extract_presentation_inventory` → read the inventory with `read_local_file` → `apply_presentation_replacements_data` → `upload_presentation`.
+  5. **DO NOT use `gws_call(service="slides", method="create", ...)` to create a deck.** That produces a blank Google Slides API deck with no template content — exactly what we want to avoid. The `gws-slides` skill is for *reading and modifying existing* presentations, not creating new ones.
+  6. After `apply_presentation_replacements_data`, read the `data.log` summary. If `J shape(s) left untouched` reports `J > 0`, the deck still has template "Lorem ipsum" / "placeholder" text. Either go back and add replacement entries for the missing shapes, or refuse to upload and tell the user the deck is incomplete.
+  7. Only call `upload_presentation` once `data.log` reports `0 shape(s) left untouched` AND the body slides actually contain text drawn from the source material identified in step 2.
 
 
 
@@ -470,7 +480,21 @@ class RestaurantFinderAgent:
                         "What restaurants are available in NYC?",
                         "Show me the details of RedFarm.",
                     ],
-                )
+                ),
+                AgentSkill(
+                    id="weather_lookup",
+                    name="Weather Lookup",
+                    description=(
+                        "Look up current weather conditions and short-term "
+                        "forecasts for a given location via Google Search."
+                    ),
+                    tags=["weather", "forecast", "search"],
+                    examples=[
+                        "What's the weather in Playa Vista right now?",
+                        "Will it rain in NYC tomorrow?",
+                        "How hot is it in Phoenix today?",
+                    ],
+                ),
             ],
         )
 

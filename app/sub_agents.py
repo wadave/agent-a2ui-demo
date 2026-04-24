@@ -24,10 +24,19 @@ def get_search_agent() -> LlmAgent:
     return LlmAgent(
         model=DEFAULT_MODEL,
         name="search_agent",
+        description=(
+            "Specialist for live web information lookups, including current "
+            "weather conditions and forecasts, news, and other real-time facts "
+            "that require Google Search grounding."
+        ),
         instruction=(
             "You're a specialist in Google Search grounding. "
             "Use web search to find current, factual information "
-            "and provide structured findings with source attribution."
+            "and provide structured findings with source attribution.\n\n"
+            "For weather queries, search for the current conditions and "
+            "(when relevant) the short-term forecast for the requested "
+            "location. Report temperature, conditions (e.g. sunny, rain), "
+            "and any notable advisories. Always cite the source."
         ),
         tools=[GoogleSearchTool()],
     )

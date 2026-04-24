@@ -205,6 +205,70 @@ def apply_para_props(paragraph, data):
             logger.warning(f"Unknown theme color: {data['theme_color']}")
 
 
+def _capture_default_style(text_frame) -> dict:
+    """Read the first non-empty run's formatting so we can restore it
+    after `tf.clear()`. Returns a partial replacement-style dict
+    (keys: color, theme_color, font_name, font_size, bold, italic).
+    """
+    style: dict = {}
+    for para in text_frame.paragraphs:
+        for run in para.runs:
+            f = run.font
+            if "font_size" not in style and f.size is not None:
+                style["font_size"] = f.size.pt
+            if "font_name" not in style and f.name:
+                style["font_name"] = f.name
+            if "bold" not in style and f.bold is not None:
+                style["bold"] = f.bold
+            if "italic" not in style and f.italic is not None:
+                style["italic"] = f.italic
+            if "color" not in style and "theme_color" not in style:
+                try:
+                    rgb = f.color.rgb
+                    if rgb is not None:
+                        style["color"] = str(rgb)
+                except (AttributeError, TypeError):
+                    try:
+                        tc = f.color.theme_color
+                        if tc is not None:
+                            style["theme_color"] = tc.name
+                    except (AttributeError, TypeError):
+                        pass
+            if "color" in style or "theme_color" in style or "font_size" in style:
+                return style
+    return style
+
+
+def _slide_default_text_color(slide) -> str | None:
+    """Pick a sensible default text color for empty placeholders based on
+    the slide's background luminance. Returns a hex color or None when
+    the background is light enough that the default (black) works.
+    """
+    try:
+        fill = slide.background.fill
+        rgb = None
+        try:
+            rgb = fill.fore_color.rgb
+        except (AttributeError, TypeError):
+            rgb = None
+        # Fall back to layout master if the slide itself inherits.
+        if rgb is None:
+            try:
+                rgb = slide.slide_layout.background.fill.fore_color.rgb
+            except (AttributeError, TypeError):
+                rgb = None
+        if rgb is None:
+            return None
+        # Relative luminance (sRGB approximation).
+        r, g, b = (int(c) for c in (rgb[0], rgb[1], rgb[2]))
+        luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+        if luminance < 0.5:
+            return "FFFFFF"
+        return None
+    except Exception:
+        return None
+
+
 def handle_replace(args):
     prs = Presentation(args.input)
     with open(args.replacements) as f:
@@ -267,15 +331,32 @@ def handle_replace(args):
     autosize_failures = 0
     for slide_key, shape_data in replacements.items():
         s_idx = int(slide_key.split("-")[1])
-        shapes = get_slide_shapes(prs.slides[s_idx])
+        slide = prs.slides[s_idx]
+        shapes = get_slide_shapes(slide)
+        slide_default_color = _slide_default_text_color(slide)
         for shape_key, r_data in shape_data.items():
             sh_idx = int(shape_key.split("-")[1])
             tf = shapes[sh_idx].shape.text_frame
+            # Capture the original run's formatting BEFORE clearing — we
+            # use it as a fallback for properties the replacement payload
+            # leaves unspecified. Without this, `tf.clear()` followed by
+            # `add_run()` produces a fresh black-default run, which renders
+            # as black-on-black on dark cover / thank-you slides whose
+            # template runs were originally white.
+            preserved = _capture_default_style(tf)
+            if "color" not in preserved and "theme_color" not in preserved:
+                # Empty placeholder on a dark slide → fall back to the
+                # slide-background-derived default (white on dark, black
+                # on light) so newly populated body shapes stay legible.
+                if slide_default_color:
+                    preserved["color"] = slide_default_color
             tf.clear()
             paragraphs = r_data.get("paragraphs", [])
             for i, p_data in enumerate(paragraphs):
                 p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-                apply_para_props(p, p_data)
+                # Replacement data wins; preserved style fills in gaps.
+                merged = {**preserved, **p_data}
+                apply_para_props(p, merged)
                 applied_paragraphs += 1
             # Make replaced shapes auto-shrink text to fit. Without this,
             # any string longer than the placeholder's original capacity
