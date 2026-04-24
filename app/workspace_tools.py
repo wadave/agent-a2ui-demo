@@ -17,13 +17,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 from typing import Any, Literal
 
 import google.auth
+import google.auth.compute_engine
+from google.auth import impersonated_credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+
+logger = logging.getLogger(__name__)
 
 _USE_ADC = os.getenv("K_SERVICE") is not None or os.getenv("USE_ADC") == "TRUE"
 
@@ -72,10 +77,47 @@ _SCOPES = [
 
 
 def _get_service(service_name: str, version: str):
-    """Build a Google API service client using Application Default Credentials."""
-    credentials, _ = google.auth.default(scopes=_SCOPES)
-    if hasattr(credentials, "with_scopes"):
-        credentials = credentials.with_scopes(_SCOPES)
+    """Build a Google API service client using Application Default Credentials.
+
+    On Cloud Run the runtime SA's metadata-server token only carries the
+    ``cloud-platform`` scope. That scope is fine for IAM-controlled GCP APIs
+    but Workspace APIs (Drive/Sheets/Docs/Slides) gate on OAuth scopes and
+    reject it with 403 ``The caller does not have permission``. The fix is
+    self-impersonation via the IAM Credentials API: the SA mints a token for
+    itself with the actual Workspace scopes attached. Requires
+    ``roles/iam.serviceAccountTokenCreator`` on the SA itself and the
+    ``iamcredentials.googleapis.com`` API enabled in the project.
+
+    Local user creds (``gcloud auth application-default login``) already
+    carry full Workspace scopes, so we skip impersonation in that case.
+    """
+    source_credentials, _ = google.auth.default()
+    if isinstance(source_credentials, google.auth.compute_engine.Credentials):
+        # On Cloud Run / GCE, compute_engine.Credentials starts with
+        # service_account_email == "default" until refreshed against the
+        # metadata server. Refresh first so we can read the real SA email
+        # and pass it as target_principal for self-impersonation.
+        from google.auth.transport.requests import Request
+
+        source_credentials.refresh(Request())
+        sa_email = source_credentials.service_account_email
+        if not sa_email or sa_email == "default":
+            raise RuntimeError(
+                "Could not resolve runtime SA email from metadata server"
+            )
+        credentials = impersonated_credentials.Credentials(
+            source_credentials=source_credentials,
+            target_principal=sa_email,
+            target_scopes=_SCOPES,
+            lifetime=3600,
+        )
+    else:
+        # User credentials (gcloud auth application-default login) or
+        # explicit SA key file — request scopes directly. with_scopes is
+        # the supported path on these credential types.
+        credentials = source_credentials
+        if hasattr(credentials, "with_scopes"):
+            credentials = credentials.with_scopes(_SCOPES)
     return build(service_name, version, credentials=credentials)
 
 
@@ -314,6 +356,7 @@ def create_doc(title: str, folder_name: str | None = None) -> dict[str, Any]:
                 },
             }
         except HttpError as e:
+            logger.exception("Workspace API call failed")
             return {"ok": False, "error": str(e)}
     else:
         res = _run_gws(
@@ -354,6 +397,7 @@ def append_doc_text(document_id: str, text: str) -> dict[str, Any]:
             ).execute()
             return {"ok": True}
         except HttpError as e:
+            logger.exception("Workspace API call failed")
             return {"ok": False, "error": str(e)}
     else:
         body = {"requests": [{"insertText": {"text": text}}]}
@@ -389,6 +433,7 @@ def share_doc(
             ).execute()
             return {"ok": True}
         except HttpError as e:
+            logger.exception("Workspace API call failed")
             return {"ok": False, "error": str(e)}
     else:
         body = {"type": "user", "role": role, "emailAddress": email}
@@ -423,6 +468,7 @@ def share_anyone_with_link(
             drive_service.permissions().create(fileId=file_id, body=body).execute()
             return {"ok": True}
         except HttpError as e:
+            logger.exception("Workspace API call failed")
             return {"ok": False, "error": str(e)}
     else:
         return _run_gws(
@@ -465,6 +511,7 @@ def create_sheet(title: str, folder_name: str | None = None) -> dict[str, Any]:
                 },
             }
         except HttpError as e:
+            logger.exception("Workspace API call failed")
             return {"ok": False, "error": str(e)}
     else:
         res = _run_gws(
@@ -519,6 +566,7 @@ def append_sheet_data(
             )
             return {"ok": True}
         except HttpError as e:
+            logger.exception("Workspace API call failed")
             return {"ok": False, "error": str(e)}
     else:
         body = {"values": values}
@@ -566,6 +614,7 @@ def create_presentation(title: str, folder_name: str | None = None) -> dict[str,
                 },
             }
         except HttpError as e:
+            logger.exception("Workspace API call failed")
             return {"ok": False, "error": str(e)}
     else:
         res = _run_gws(
@@ -663,6 +712,7 @@ def add_presentation_slide(
             )
             return {"ok": True}
         except HttpError as e:
+            logger.exception("Workspace API call failed")
             return {"ok": False, "error": str(e)}
     else:
         import uuid
@@ -787,6 +837,7 @@ def upload_presentation(
                 },
             }
         except HttpError as e:
+            logger.exception("Workspace API call failed")
             return {"ok": False, "error": str(e)}
     else:
         # The gws CLI uploads media via the dedicated --upload flag, not
@@ -842,6 +893,7 @@ def read_doc(document_id: str) -> dict[str, Any]:
 
             return {"ok": True, "data": {"text": text}}
         except HttpError as e:
+            logger.exception("Workspace API call failed")
             return {"ok": False, "error": str(e)}
     else:
         return _run_gws(
@@ -868,6 +920,7 @@ def read_sheet(spreadsheet_id: str, range_name: str = "Sheet1!A:Z") -> dict[str,
             )
             return {"ok": True, "data": {"values": result.get("values", [])}}
         except HttpError as e:
+            logger.exception("Workspace API call failed")
             return {"ok": False, "error": str(e)}
     else:
         return _run_gws(
@@ -905,6 +958,7 @@ def read_presentation(presentation_id: str) -> dict[str, Any]:
 
             return {"ok": True, "data": {"text": text}}
         except HttpError as e:
+            logger.exception("Workspace API call failed")
             return {"ok": False, "error": str(e)}
     else:
         return _run_gws(
@@ -960,6 +1014,7 @@ def read_drive_file(file_id: str) -> dict[str, Any]:
                 if os.path.exists(tmp_path):
                     os.remove(tmp_path)
         except HttpError as e:
+            logger.exception("Workspace API call failed")
             return {"ok": False, "error": str(e)}
     else:
         return _run_gws(

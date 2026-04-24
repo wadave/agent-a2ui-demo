@@ -35,6 +35,13 @@ locals {
     "cloudtrace.googleapis.com",
     "telemetry.googleapis.com",
     "discoveryengine.googleapis.com",
+    # Workspace APIs called by the runtime SA via google.auth.default()
+    # in workspace_tools.py (create_sheet, create_doc, upload_presentation,
+    # share_anyone_with_link, gws_call, etc).
+    "sheets.googleapis.com",
+    "drive.googleapis.com",
+    "docs.googleapis.com",
+    "slides.googleapis.com",
   ]
 
   deploy_project_ids = {
