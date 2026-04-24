@@ -197,13 +197,25 @@ Your task is to analyze the user's request, fetch the necessary data, select the
   2. Call `send_a2ui_json_to_client` using the `---BEGIN DRIVE_PREVIEW EXAMPLE---` template. Replace the literal `FILE_ID_HERE` in BOTH the `previewUrl` and `openLink` (in v0.9, set the values inside `updateDataModel.value`; in v0.8, substitute `FILE_ID_HERE` everywhere it appears in the literalString fields). Set `title` to the file name and `subtitle` to one of `"Google Slides — saved in <Folder>"` / `"Google Docs — saved in <Folder>"` / `"Google Sheets — saved in <Folder>"`. Use folder name `Drive root` if no folder was specified.
   3. Emit a short plain-text confirmation alongside the tool call (e.g. `"Saved as 'restaurants0' in Documents:"`) — never tool-call only, never text-only.
 
-  Read-only workspace operations (`read_doc`, `read_sheet`, `read_presentation`, `read_drive_file`) still respond with text only — no A2UI surface for those.
+  Read-only workspace operations (`read_doc`, `read_sheet`, `read_presentation`, `read_drive_file`) normally respond with text only — EXCEPT when the user asks for a chart/graph (see next rule).
+
+- **A2UI Chart for Google Sheets data**: When the user asks to chart, graph, plot, or visualize sheet data — phrasing like "show this as a chart", "graph the ratings", "plot revenue by month" — do this. The `Chart` component is registered in both v0.8 (for Gemini Enterprise) and v0.9 (for the local Lit shell), and the catalog example is auto-included for both versions.
+  1. Resolve the data. If the sheet was just created/appended this turn, the agent already has the rows in context. Otherwise call `read_sheet(spreadsheet_id, range)` to fetch them. If a column is referenced ("by rating"), pick the right pair of columns: one for `label`, one numeric for `value`.
+  2. Decide chart type from the user's intent — categorical breakdown (share of a whole) → `pie` or `doughnut`; ranked comparison (top-N, by-score) → `bar`. If neither fits cleanly (time series, scatter, multi-series), fall through to the **Sheets-embedded fallback** (3b) instead.
+  3a. Call `send_a2ui_json_to_client` using the `---BEGIN CHART EXAMPLE---` template. Substitute:
+      - `chart.title` literalString with a concise title.
+      - the `Chart.type` literal with `"bar"`, `"pie"`, or `"doughnut"`.
+      - the `chart.items[N]` keys (`label` valueString, `value` valueNumber) with one entry per row from the sheet. Drop the example's 5 rows entirely and replace with the real data — never ship the example's restaurant ratings.
+      - Generate a fresh `surfaceId` per request (e.g. `sheet-chart-<unix-ts>`).
+  3b. **Fallback for unsupported chart types** (line, scatter, area, time series): instead of `Chart`, call `gws_call(service="sheets", resource="spreadsheets", method="batchUpdate", json_body=...)` with an `addChart` request to add a real Google Sheets chart to the sheet, then send the `---BEGIN drive_preview---` surface pointed at the sheet — the embedded Sheets viewer renders the chart natively. After this, also call `share_anyone_with_link(file_id)` if not already shared.
+  4. Always include a short plain-text intro alongside the chart tool call (e.g. `"Restaurants by rating:"`).
+  5. Cap the chart at ~12 data points. If the source data has more, take the top 12 by `value` and add a `"+ N more"` aggregate row.
 
 
 - When the user asks for restaurant details, respond with **text only** in Markdown format. Do NOT call the A2UI tool.
 - For found restaurants (e.g. from buttons like 'Show on map'), use `send_a2ui_json_to_client` directly with the name and address you already have. Do NOT re-fetch the restaurant.
 - **Action button clicks**: If the user message starts with `Selected:` (e.g. `Selected: showOnMap`, `Selected: selectRestaurants`), the user clicked an A2UI button. You MUST respond by calling `send_a2ui_json_to_client` with the appropriate example — NEVER with text only. The restaurant name and address are in the action context; reuse them.
-- When the user asks for directions, call `get_directions` to resolve addresses, then use `send_a2ui_json_to_client` with a `WebFrameUrl` showing the route. Also include a Text component with a clickable link: "[View full directions on Google Maps](directions_url)".
+- When the user asks for directions, call `get_directions` to resolve addresses, then use `send_a2ui_json_to_client` with a `WebFrameUrl` showing the route. Also include a Text component with a clickable link: "[View full directions on Google Maps](directions_url)". **For the WebFrameUrl `origin` and `destination` query params, use `origin_query` and `destination_query` from the tool response (NOT the bare `origin`/`destination` addresses)** — these are name-prefixed and disambiguate POIs that share a street address (e.g. two restaurants inside the same resort).
 - For restaurant lists, map views, and directions, you MUST use the A2UI tool.
 - **Use Conversation History**: If the user refers to a location or restaurant mentioned previously (like "Urban Plates"), you MUST check the conversation history for its address. Do NOT ask the user for the address or search for it if it was already provided in the chat.
 - **Resolve Abbreviations**: Expand common abbreviations like "PLV" or "Plv" to "Playa Vista" when searching or getting directions to ensure robust queries.
@@ -611,7 +623,7 @@ class RestaurantFinderAgent:
         )
 
         return AgentCard(
-            name="Restaurant Finder Agent",
+            name="A2UI Skill Demo Agent",
             description="Restaurant Finder Agent using Google Maps with A2UI v0.8",
             url=self.base_url,
             version="1.0.0",

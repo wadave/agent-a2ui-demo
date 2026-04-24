@@ -130,7 +130,7 @@ build-inspector-if-needed:
 deploy:
 	PROJECT_ID=$$(gcloud config get-value project) && \
 	PROJECT_NUMBER=$$(gcloud projects describe $$PROJECT_ID --format="value(projectNumber)") && \
-	gcloud beta run deploy agent-a2ui-09-demo \
+	gcloud beta run deploy agent-a2ui-skill-demo \
 		--source . \
 		--memory "4Gi" \
 		--project $$PROJECT_ID \
@@ -140,7 +140,7 @@ deploy:
 		--labels "created-by=adk" \
 		--update-build-env-vars "AGENT_VERSION=$(shell awk -F'"' '/^version = / {print $$2}' pyproject.toml || echo '0.0.0')" \
 		--update-env-vars \
-		"APP_URL=https://agent-a2ui-09-demo-$$PROJECT_NUMBER.us-central1.run.app,AGENT_URL=https://agent-a2ui-09-demo-$$PROJECT_NUMBER.us-central1.run.app,GOOGLE_CLOUD_PROJECT=$$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=true,MODEL=gemini-3-flash-preview" \
+		"APP_URL=https://agent-a2ui-skill-demo-$$PROJECT_NUMBER.us-central1.run.app,AGENT_URL=https://agent-a2ui-skill-demo-$$PROJECT_NUMBER.us-central1.run.app,GOOGLE_CLOUD_PROJECT=$$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=true,MODEL=gemini-3-flash-preview" \
 		$(if $(IAP),--iap) \
 		$(if $(PORT),--port=$(PORT))
 
@@ -169,7 +169,7 @@ test:
 # Usage: make test-remote [AGENT_URL=https://your-service.run.app]
 test-remote:
 	uv sync --dev
-	AGENT_URL=$(or $(AGENT_URL),https://agent-a2ui-09-demo-$$(gcloud projects describe $$(gcloud config get-value project 2>/dev/null) --format="value(projectNumber)" 2>/dev/null).us-central1.run.app) \
+	AGENT_URL=$(or $(AGENT_URL),https://agent-a2ui-skill-demo-$$(gcloud projects describe $$(gcloud config get-value project 2>/dev/null) --format="value(projectNumber)" 2>/dev/null).us-central1.run.app) \
 	uv run pytest tests/integration/remote_e2e_test.py -v
 
 # ==============================================================================
@@ -219,6 +219,6 @@ register-gemini-enterprise:
 	@PROJECT_ID=$$(gcloud config get-value project 2>/dev/null) && \
 	PROJECT_NUMBER=$$(gcloud projects describe $$PROJECT_ID --format="value(projectNumber)" 2>/dev/null) && \
 	uvx agent-starter-pack@0.41.1 register-gemini-enterprise \
-		--agent-card-url="https://agent-a2ui-09-demo-$$PROJECT_NUMBER.us-central1.run.app/.well-known/agent-card.json" \
+		--agent-card-url="https://agent-a2ui-skill-demo-$$PROJECT_NUMBER.us-central1.run.app/.well-known/agent-card.json" \
 		--deployment-target="cloud_run" \
 		--project-number="$$PROJECT_NUMBER"

@@ -124,9 +124,20 @@ async def get_directions(query: str) -> str:
         data = json.loads(response_text)
         origin = data.get("origin", "")
         destination = data.get("destination", "")
-        if origin and destination:
+        origin_name = data.get("origin_name", "")
+        destination_name = data.get("destination_name", "")
+        # Prefix with the place name so co-located POIs (e.g. two restaurants
+        # inside the same resort) don't collapse to the same street address.
+        origin_query = f"{origin_name}, {origin}".strip(", ").strip() or origin
+        destination_query = (
+            f"{destination_name}, {destination}".strip(", ").strip() or destination
+        )
+        data["origin_query"] = origin_query
+        data["destination_query"] = destination_query
+        if origin_query and destination_query:
             data["directions_url"] = (
-                f"https://www.google.com/maps/dir/{quote(origin)}/{quote(destination)}"
+                f"https://www.google.com/maps/dir/"
+                f"{quote(origin_query)}/{quote(destination_query)}"
             )
         return json.dumps(data)
     except json.JSONDecodeError:

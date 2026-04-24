@@ -6,7 +6,7 @@ locals {
 
   ge_agent_card = jsonencode({
     protocolVersion    = "v1.0"
-    name               = "Restaurant Finder Agent"
+    name               = "A2UI Skill Demo Agent"
     description        = "A sample restaurant finder for you!"
     url                = local.cloud_run_url
     version            = "1.0.0"
@@ -46,7 +46,7 @@ module "gemini_enterprise_register" {
   gemini_enterprise_region = "global"
   gemini_enterprise_app_id = var.gemini_enterprise_app_id
 
-  gemini_enterprise_agent_name = "Restaurant Finder Agent (dev)"
+  gemini_enterprise_agent_name = "A2UI Skill Demo Agent (dev)"
   agent_description            = "A2UI restaurant finder agent on Cloud Run."
   agent_card_json              = local.ge_agent_card
 

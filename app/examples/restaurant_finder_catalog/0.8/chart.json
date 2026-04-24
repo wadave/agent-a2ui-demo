@@ -1,0 +1,70 @@
+[
+  {
+    "beginRendering": {
+      "surfaceId": "sheet-chart",
+      "root": "root-canvas"
+    }
+  },
+  {
+    "surfaceUpdate": {
+      "surfaceId": "sheet-chart",
+      "components": [
+        {
+          "id": "root-canvas",
+          "component": {
+            "Canvas": {
+              "children": { "explicitList": ["chart-container"] }
+            }
+          }
+        },
+        {
+          "id": "chart-container",
+          "component": {
+            "Column": {
+              "children": { "explicitList": ["chart-header", "main-chart"] },
+              "alignment": "center"
+            }
+          }
+        },
+        {
+          "id": "chart-header",
+          "component": {
+            "Text": {
+              "text": { "path": "/chart.title" },
+              "usageHint": "h2"
+            }
+          }
+        },
+        {
+          "id": "main-chart",
+          "component": {
+            "Chart": {
+              "type": "bar",
+              "title": { "path": "/chart.title" },
+              "chartData": { "path": "/chart.items" }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "dataModelUpdate": {
+      "surfaceId": "sheet-chart",
+      "path": "/",
+      "contents": [
+        { "key": "chart.title", "valueString": "Restaurants by Rating" },
+        { "key": "chart.items[0].label", "valueString": "Han Dynasty" },
+        { "key": "chart.items[0].value", "valueNumber": 4.6 },
+        { "key": "chart.items[1].label", "valueString": "Urban Plates" },
+        { "key": "chart.items[1].value", "valueNumber": 4.4 },
+        { "key": "chart.items[2].label", "valueString": "RedFarm" },
+        { "key": "chart.items[2].value", "valueNumber": 4.5 },
+        { "key": "chart.items[3].label", "valueString": "Playa Provisions" },
+        { "key": "chart.items[3].value", "valueNumber": 4.3 },
+        { "key": "chart.items[4].label", "valueString": "The Hatchery" },
+        { "key": "chart.items[4].value", "valueNumber": 4.1 }
+      ]
+    }
+  }
+]

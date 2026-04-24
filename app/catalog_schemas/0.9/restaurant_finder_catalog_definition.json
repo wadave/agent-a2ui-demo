@@ -6,17 +6,24 @@
       "type": "object",
       "description": "Embeds a web page in an iframe. Use for Google Maps embeds and other web content.",
       "allOf": [
-        { "$ref": "common_types.json#/$defs/ComponentCommon" },
+        {
+          "$ref": "common_types.json#/$defs/ComponentCommon"
+        },
         {
           "type": "object",
           "properties": {
-            "component": { "const": "WebFrameUrl" },
+            "component": {
+              "const": "WebFrameUrl"
+            },
             "url": {
               "$ref": "common_types.json#/$defs/DynamicString",
               "description": "The URL of the web page to embed."
             }
           },
-          "required": ["component", "url"]
+          "required": [
+            "component",
+            "url"
+          ]
         }
       ],
       "unevaluatedProperties": false
@@ -25,24 +32,37 @@
       "type": "object",
       "description": "Displays a Google Map with optional pins.",
       "allOf": [
-        { "$ref": "common_types.json#/$defs/ComponentCommon" },
+        {
+          "$ref": "common_types.json#/$defs/ComponentCommon"
+        },
         {
           "type": "object",
           "properties": {
-            "component": { "const": "GoogleMap" },
+            "component": {
+              "const": "GoogleMap"
+            },
             "center": {
               "description": "The center point of the map. Either a literal { lat, lng } object or a data binding.",
               "oneOf": [
                 {
                   "type": "object",
                   "properties": {
-                    "lat": { "type": "number" },
-                    "lng": { "type": "number" }
+                    "lat": {
+                      "type": "number"
+                    },
+                    "lng": {
+                      "type": "number"
+                    }
                   },
-                  "required": ["lat", "lng"],
+                  "required": [
+                    "lat",
+                    "lng"
+                  ],
                   "additionalProperties": false
                 },
-                { "$ref": "common_types.json#/$defs/DataBinding" }
+                {
+                  "$ref": "common_types.json#/$defs/DataBinding"
+                }
               ]
             },
             "zoom": {
@@ -57,22 +77,154 @@
                   "items": {
                     "type": "object",
                     "properties": {
-                      "lat": { "type": "number" },
-                      "lng": { "type": "number" },
-                      "name": { "type": "string" },
-                      "description": { "type": "string" },
-                      "background": { "type": "string" },
-                      "borderColor": { "type": "string" },
-                      "glyphColor": { "type": "string" }
+                      "lat": {
+                        "type": "number"
+                      },
+                      "lng": {
+                        "type": "number"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "background": {
+                        "type": "string"
+                      },
+                      "borderColor": {
+                        "type": "string"
+                      },
+                      "glyphColor": {
+                        "type": "string"
+                      }
                     },
-                    "required": ["lat", "lng", "name"]
+                    "required": [
+                      "lat",
+                      "lng",
+                      "name"
+                    ]
                   }
                 },
-                { "$ref": "common_types.json#/$defs/DataBinding" }
+                {
+                  "$ref": "common_types.json#/$defs/DataBinding"
+                }
               ]
             }
           },
-          "required": ["component", "center", "zoom"]
+          "required": [
+            "component",
+            "center",
+            "zoom"
+          ]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "Canvas": {
+      "type": "object",
+      "description": "Renders the UI element in a stateful panel. v0.9 root container for charts.",
+      "allOf": [
+        {
+          "$ref": "common_types.json#/$defs/ComponentCommon"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "component": {
+              "const": "Canvas"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Child component IDs."
+            }
+          },
+          "required": [
+            "component",
+            "children"
+          ]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "Chart": {
+      "type": "object",
+      "description": "An interactive chart that uses a hierarchical list of items (label + value, with optional drillDown). 'pie'/'doughnut' for categorical breakdowns; 'bar' for ranked comparisons.",
+      "allOf": [
+        {
+          "$ref": "common_types.json#/$defs/ComponentCommon"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "component": {
+              "const": "Chart"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "doughnut",
+                "pie",
+                "bar"
+              ]
+            },
+            "title": {
+              "$ref": "common_types.json#/$defs/DynamicString",
+              "description": "The title of the chart."
+            },
+            "chartData": {
+              "description": "Chart data. Literal array or data-model path.",
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "drillDown": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string"
+                            },
+                            "value": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "value"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ]
+                  }
+                },
+                {
+                  "$ref": "common_types.json#/$defs/DataBinding"
+                }
+              ]
+            }
+          },
+          "required": [
+            "component",
+            "type",
+            "chartData"
+          ]
         }
       ],
       "unevaluatedProperties": false

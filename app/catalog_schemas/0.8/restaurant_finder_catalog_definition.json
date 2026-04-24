@@ -10,17 +10,31 @@
           "description": "The text content to display. Can be a literal string or a data model path.",
           "additionalProperties": false,
           "properties": {
-            "literalString": { "type": "string" },
-            "path": { "type": "string" }
+            "literalString": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
           }
         },
         "usageHint": {
           "type": "string",
           "description": "A hint for the base text style.",
-          "enum": ["h1", "h2", "h3", "h4", "h5", "caption", "body"]
+          "enum": [
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "caption",
+            "body"
+          ]
         }
       },
-      "required": ["text"]
+      "required": [
+        "text"
+      ]
     },
     "Image": {
       "type": "object",
@@ -31,20 +45,39 @@
           "description": "The URL of the image to display.",
           "additionalProperties": false,
           "properties": {
-            "literalString": { "type": "string" },
-            "path": { "type": "string" }
+            "literalString": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
           }
         },
         "fit": {
           "type": "string",
-          "enum": ["contain", "cover", "fill", "none", "scale-down"]
+          "enum": [
+            "contain",
+            "cover",
+            "fill",
+            "none",
+            "scale-down"
+          ]
         },
         "usageHint": {
           "type": "string",
-          "enum": ["icon", "avatar", "smallFeature", "mediumFeature", "largeFeature", "header"]
+          "enum": [
+            "icon",
+            "avatar",
+            "smallFeature",
+            "mediumFeature",
+            "largeFeature",
+            "header"
+          ]
         }
       },
-      "required": ["url"]
+      "required": [
+        "url"
+      ]
     },
     "Icon": {
       "type": "object",
@@ -57,22 +90,65 @@
             "literalString": {
               "type": "string",
               "enum": [
-                "accountCircle", "add", "arrowBack", "arrowForward", "attachFile",
-                "calendarToday", "call", "camera", "check", "close", "delete",
-                "download", "edit", "event", "error", "favorite", "favoriteOff",
-                "folder", "help", "home", "info", "locationOn", "lock", "lockOpen",
-                "mail", "menu", "moreVert", "moreHoriz", "notificationsOff",
-                "notifications", "payment", "person", "phone", "photo", "print",
-                "refresh", "search", "send", "settings", "share", "shoppingCart",
-                "star", "starHalf", "starOff", "upload", "visibility", "visibilityOff",
+                "accountCircle",
+                "add",
+                "arrowBack",
+                "arrowForward",
+                "attachFile",
+                "calendarToday",
+                "call",
+                "camera",
+                "check",
+                "close",
+                "delete",
+                "download",
+                "edit",
+                "event",
+                "error",
+                "favorite",
+                "favoriteOff",
+                "folder",
+                "help",
+                "home",
+                "info",
+                "locationOn",
+                "lock",
+                "lockOpen",
+                "mail",
+                "menu",
+                "moreVert",
+                "moreHoriz",
+                "notificationsOff",
+                "notifications",
+                "payment",
+                "person",
+                "phone",
+                "photo",
+                "print",
+                "refresh",
+                "search",
+                "send",
+                "settings",
+                "share",
+                "shoppingCart",
+                "star",
+                "starHalf",
+                "starOff",
+                "upload",
+                "visibility",
+                "visibilityOff",
                 "warning"
               ]
             },
-            "path": { "type": "string" }
+            "path": {
+              "type": "string"
+            }
           }
         }
       },
-      "required": ["name"]
+      "required": [
+        "name"
+      ]
     },
     "Row": {
       "type": "object",
@@ -84,29 +160,52 @@
           "properties": {
             "explicitList": {
               "type": "array",
-              "items": { "type": "string" }
+              "items": {
+                "type": "string"
+              }
             },
             "template": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "componentId": { "type": "string" },
-                "dataBinding": { "type": "string" }
+                "componentId": {
+                  "type": "string"
+                },
+                "dataBinding": {
+                  "type": "string"
+                }
               },
-              "required": ["componentId", "dataBinding"]
+              "required": [
+                "componentId",
+                "dataBinding"
+              ]
             }
           }
         },
         "distribution": {
           "type": "string",
-          "enum": ["center", "end", "spaceAround", "spaceBetween", "spaceEvenly", "start"]
+          "enum": [
+            "center",
+            "end",
+            "spaceAround",
+            "spaceBetween",
+            "spaceEvenly",
+            "start"
+          ]
         },
         "alignment": {
           "type": "string",
-          "enum": ["start", "center", "end", "stretch"]
+          "enum": [
+            "start",
+            "center",
+            "end",
+            "stretch"
+          ]
         }
       },
-      "required": ["children"]
+      "required": [
+        "children"
+      ]
     },
     "Column": {
       "type": "object",
@@ -118,29 +217,52 @@
           "properties": {
             "explicitList": {
               "type": "array",
-              "items": { "type": "string" }
+              "items": {
+                "type": "string"
+              }
             },
             "template": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "componentId": { "type": "string" },
-                "dataBinding": { "type": "string" }
+                "componentId": {
+                  "type": "string"
+                },
+                "dataBinding": {
+                  "type": "string"
+                }
               },
-              "required": ["componentId", "dataBinding"]
+              "required": [
+                "componentId",
+                "dataBinding"
+              ]
             }
           }
         },
         "distribution": {
           "type": "string",
-          "enum": ["start", "center", "end", "spaceBetween", "spaceAround", "spaceEvenly"]
+          "enum": [
+            "start",
+            "center",
+            "end",
+            "spaceBetween",
+            "spaceAround",
+            "spaceEvenly"
+          ]
         },
         "alignment": {
           "type": "string",
-          "enum": ["center", "end", "start", "stretch"]
+          "enum": [
+            "center",
+            "end",
+            "start",
+            "stretch"
+          ]
         }
       },
-      "required": ["children"]
+      "required": [
+        "children"
+      ]
     },
     "List": {
       "type": "object",
@@ -152,29 +274,48 @@
           "properties": {
             "explicitList": {
               "type": "array",
-              "items": { "type": "string" }
+              "items": {
+                "type": "string"
+              }
             },
             "template": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "componentId": { "type": "string" },
-                "dataBinding": { "type": "string" }
+                "componentId": {
+                  "type": "string"
+                },
+                "dataBinding": {
+                  "type": "string"
+                }
               },
-              "required": ["componentId", "dataBinding"]
+              "required": [
+                "componentId",
+                "dataBinding"
+              ]
             }
           }
         },
         "direction": {
           "type": "string",
-          "enum": ["vertical", "horizontal"]
+          "enum": [
+            "vertical",
+            "horizontal"
+          ]
         },
         "alignment": {
           "type": "string",
-          "enum": ["start", "center", "end", "stretch"]
+          "enum": [
+            "start",
+            "center",
+            "end",
+            "stretch"
+          ]
         }
       },
-      "required": ["children"]
+      "required": [
+        "children"
+      ]
     },
     "Card": {
       "type": "object",
@@ -185,7 +326,9 @@
           "description": "The ID of the component to be rendered inside the card."
         }
       },
-      "required": ["child"]
+      "required": [
+        "child"
+      ]
     },
     "Tabs": {
       "type": "object",
@@ -201,17 +344,28 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                  "literalString": { "type": "string" },
-                  "path": { "type": "string" }
+                  "literalString": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  }
                 }
               },
-              "child": { "type": "string" }
+              "child": {
+                "type": "string"
+              }
             },
-            "required": ["title", "child"]
+            "required": [
+              "title",
+              "child"
+            ]
           }
         }
       },
-      "required": ["tabItems"]
+      "required": [
+        "tabItems"
+      ]
     },
     "Divider": {
       "type": "object",
@@ -219,7 +373,10 @@
       "properties": {
         "axis": {
           "type": "string",
-          "enum": ["horizontal", "vertical"]
+          "enum": [
+            "horizontal",
+            "vertical"
+          ]
         }
       }
     },
@@ -238,38 +395,61 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "name": { "type": "string" },
+            "name": {
+              "type": "string"
+            },
             "context": {
               "type": "array",
               "items": {
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                  "key": { "type": "string" },
+                  "key": {
+                    "type": "string"
+                  },
                   "value": {
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
-                      "path": { "type": "string" },
-                      "literalString": { "type": "string" },
-                      "literalNumber": { "type": "number" },
-                      "literalBoolean": { "type": "boolean" }
+                      "path": {
+                        "type": "string"
+                      },
+                      "literalString": {
+                        "type": "string"
+                      },
+                      "literalNumber": {
+                        "type": "number"
+                      },
+                      "literalBoolean": {
+                        "type": "boolean"
+                      }
                     }
                   }
                 },
-                "required": ["key", "value"]
+                "required": [
+                  "key",
+                  "value"
+                ]
               }
             }
           },
-          "required": ["name"]
+          "required": [
+            "name"
+          ]
         }
       },
-      "required": ["child", "action"]
+      "required": [
+        "child",
+        "action"
+      ]
     },
     "MultipleChoice": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["selections", "options"],
+      "required": [
+        "selections",
+        "options"
+      ],
       "properties": {
         "selections": {
           "type": "object",
@@ -277,9 +457,13 @@
           "properties": {
             "literalArray": {
               "type": "array",
-              "items": { "type": "string" }
+              "items": {
+                "type": "string"
+              }
             },
-            "path": { "type": "string" }
+            "path": {
+              "type": "string"
+            }
           }
         },
         "options": {
@@ -292,21 +476,37 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                  "literalString": { "type": "string" },
-                  "path": { "type": "string" }
+                  "literalString": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  }
                 }
               },
-              "value": { "type": "string" }
+              "value": {
+                "type": "string"
+              }
             },
-            "required": ["label", "value"]
+            "required": [
+              "label",
+              "value"
+            ]
           }
         },
-        "maxAllowedSelections": { "type": "integer" },
+        "maxAllowedSelections": {
+          "type": "integer"
+        },
         "variant": {
           "type": "string",
-          "enum": ["checkbox", "chips"]
+          "enum": [
+            "checkbox",
+            "chips"
+          ]
         },
-        "filterable": { "type": "boolean" }
+        "filterable": {
+          "type": "boolean"
+        }
       }
     },
     "TextField": {
@@ -317,24 +517,40 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "literalString": { "type": "string" },
-            "path": { "type": "string" }
+            "literalString": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
           }
         },
         "text": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "literalString": { "type": "string" },
-            "path": { "type": "string" }
+            "literalString": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
           }
         },
         "textFieldType": {
           "type": "string",
-          "enum": ["date", "longText", "number", "shortText", "obscured"]
+          "enum": [
+            "date",
+            "longText",
+            "number",
+            "shortText",
+            "obscured"
+          ]
         }
       },
-      "required": ["label"]
+      "required": [
+        "label"
+      ]
     },
     "WebFrameUrl": {
       "type": "object",
@@ -345,12 +561,18 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "literalString": { "type": "string" },
-            "path": { "type": "string" }
+            "literalString": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
           }
         }
       },
-      "required": ["url"]
+      "required": [
+        "url"
+      ]
     },
     "GoogleMap": {
       "type": "object",
@@ -363,20 +585,33 @@
             "literalObject": {
               "type": "object",
               "properties": {
-                "lat": { "type": "number" },
-                "lng": { "type": "number" }
+                "lat": {
+                  "type": "number"
+                },
+                "lng": {
+                  "type": "number"
+                }
               },
-              "required": ["lat", "lng"]
+              "required": [
+                "lat",
+                "lng"
+              ]
             },
-            "path": { "type": "string" }
+            "path": {
+              "type": "string"
+            }
           }
         },
         "zoom": {
           "type": "object",
           "description": "The zoom level of the map.",
           "properties": {
-            "literalNumber": { "type": "number" },
-            "path": { "type": "string" }
+            "literalNumber": {
+              "type": "number"
+            },
+            "path": {
+              "type": "string"
+            }
           }
         },
         "pins": {
@@ -388,22 +623,143 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "lat": { "type": "number" },
-                  "lng": { "type": "number" },
-                  "name": { "type": "string" },
-                  "description": { "type": "string" },
-                  "background": { "type": "string" },
-                  "borderColor": { "type": "string" },
-                  "glyphColor": { "type": "string" }
+                  "lat": {
+                    "type": "number"
+                  },
+                  "lng": {
+                    "type": "number"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "background": {
+                    "type": "string"
+                  },
+                  "borderColor": {
+                    "type": "string"
+                  },
+                  "glyphColor": {
+                    "type": "string"
+                  }
                 },
-                "required": ["lat", "lng", "name"]
+                "required": [
+                  "lat",
+                  "lng",
+                  "name"
+                ]
               }
             },
-            "path": { "type": "string" }
+            "path": {
+              "type": "string"
+            }
           }
         }
       },
-      "required": ["center", "zoom"]
+      "required": [
+        "center",
+        "zoom"
+      ]
+    },
+    "Canvas": {
+      "type": "object",
+      "description": "Renders the UI element in a stateful panel next to the chat window.",
+      "properties": {
+        "children": {
+          "type": "object",
+          "description": "Defines the children. Use 'explicitList' for a fixed set of children.",
+          "properties": {
+            "explicitList": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "children"
+      ]
+    },
+    "Chart": {
+      "type": "object",
+      "description": "An interactive chart that uses a hierarchical list of items (label + value, with optional drillDown). For categorical breakdowns use 'pie' or 'doughnut'; for ranked values use 'bar'.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "The type of chart to render.",
+          "enum": [
+            "doughnut",
+            "pie",
+            "bar"
+          ]
+        },
+        "title": {
+          "type": "object",
+          "description": "The title of the chart. Can be a literal string or a data model path.",
+          "properties": {
+            "literalString": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "chartData": {
+          "type": "object",
+          "description": "The data for the chart. Can be a literal array or a data model path.",
+          "properties": {
+            "literalArray": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "number"
+                  },
+                  "drillDown": {
+                    "type": "array",
+                    "description": "Optional next-level breakdown.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string"
+                        },
+                        "value": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "value"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "label",
+                  "value"
+                ]
+              }
+            },
+            "path": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "required": [
+        "type",
+        "chartData"
+      ]
     }
   }
 }

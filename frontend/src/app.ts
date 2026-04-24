@@ -27,6 +27,9 @@ import { renderMarkdown } from "@a2ui/markdown-it";
 
 import { RestaurantA2UIClient } from "./client.js";
 import { customCatalog } from "./google-map-component.js";
+// Side-effect import: registers Chart + Canvas on the shared basicCatalog so
+// v0.9 MessageProcessor can resolve them when surfaces arrive.
+import "./chart-component.js";
 
 interface ChatMessage {
   role: "user" | "agent";
