@@ -28,9 +28,12 @@ When packaged and uploaded to **Cloud Run**, the application pivots to standard 
 
 ### How the SDK path works
 
-* Checks for the internal Cloud Run `K_SERVICE` environment flag.
-* Invokes `google.auth.default()` to extract the Cloud Run runtime SA credentials.
-* Self-impersonates via the IAM Credentials API to upgrade the token's OAuth scopes from `cloud-platform` to the Workspace scopes (`drive`, `documents`, `spreadsheets`, `presentations`). See `app/workspace_tools.py:_get_service`.
+* Checks for the internal Cloud Run `K_SERVICE` environment flag (or `USE_ADC=TRUE` for local override).
+* Invokes `google.auth.default()` to obtain the Cloud Run runtime SA credentials.
+* Resolves the SA email from the metadata server (refreshing or hitting `/instance/service-accounts/default/email` if it's still the literal `"default"` placeholder).
+* Builds a `google.auth.iam.Signer` bound to the runtime SA and the source credentials. The signer signs JWTs by calling `iamcredentials.googleapis.com:signBlob` — Google holds the private key, no SA key file is ever needed.
+* Wraps the signer in `google.oauth2.service_account.Credentials` with `subject=<WORKSPACE_USER_EMAIL>`. The library exchanges the signed JWT at the OAuth token endpoint for an access token scoped to the Workspace user (Domain-Wide Delegation).
+* Returns a `googleapiclient` service client that authenticates as the workspace user. See `app/workspace_tools.py:_get_service`.
 
 ### Why Domain-Wide Delegation
 
@@ -45,7 +48,7 @@ Required: the SA holds `roles/iam.serviceAccountTokenCreator` on its own resourc
 
 ### Cloud Run setup
 
-1. **Enable the Workspace APIs and the IAM Credentials API in the deploy project.** Without the Workspace APIs, the very first `POST /v4/spreadsheets` (or Docs/Slides/Drive equivalent) returns `403 "The caller does not have permission"` — the message really means "this API isn't turned on for this project." Without `iamcredentials.googleapis.com`, the self-impersonation step in `_get_service` fails before it can issue a scoped token.
+1. **Enable the Workspace APIs and the IAM Credentials API in the deploy project.** Without the Workspace APIs, the very first `POST /v4/spreadsheets` (or Docs/Slides/Drive equivalent) returns `403 "The caller does not have permission"` — the message really means "this API isn't turned on for this project." Without `iamcredentials.googleapis.com`, the IAM Signer step in `_get_service` fails before it can sign the DWD JWT.
 
    ```bash
    gcloud services enable \
@@ -116,8 +119,13 @@ Required: the SA holds `roles/iam.serviceAccountTokenCreator` on its own resourc
 
 ## 3. Forcing Environments
 
-To execute cloud logic locally, use environmental overrides:
+To execute the Cloud Run code path locally (useful for debugging the DWD pipeline without redeploying), set both:
 
 ```bash
 export USE_ADC="TRUE"
+export WORKSPACE_USER_EMAIL="you@your-workspace-domain.com"
 ```
+
+`USE_ADC=TRUE` flips `_USE_ADC` on without `K_SERVICE` being set. `WORKSPACE_USER_EMAIL` is required whenever `_USE_ADC` is true — the workspace tools raise `RuntimeError` at first call without it.
+
+For this to work locally, your `gcloud auth application-default login` user (or whichever credential `google.auth.default()` returns) must hold `roles/iam.serviceAccountTokenCreator` on the SA you're impersonating. Otherwise the IAM Signer step gets a `403 Permission denied on resource ...` from `iamcredentials.googleapis.com:signBlob`.

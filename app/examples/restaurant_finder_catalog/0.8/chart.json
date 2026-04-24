@@ -2,7 +2,7 @@
   {
     "beginRendering": {
       "surfaceId": "sheet-chart",
-      "root": "root-canvas"
+      "root": "root"
     }
   },
   {
@@ -10,10 +10,11 @@
       "surfaceId": "sheet-chart",
       "components": [
         {
-          "id": "root-canvas",
+          "id": "root",
           "component": {
-            "Canvas": {
-              "children": { "explicitList": ["chart-container"] }
+            "Column": {
+              "children": { "explicitList": ["chart-container"] },
+              "alignment": "stretch"
             }
           }
         },

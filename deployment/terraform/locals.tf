@@ -42,6 +42,10 @@ locals {
     "drive.googleapis.com",
     "docs.googleapis.com",
     "slides.googleapis.com",
+    # IAM Credentials API: workspace_tools._get_service uses iam.Signer to
+    # sign DWD JWTs remotely (no SA key file). Calls
+    # iamcredentials.googleapis.com:signBlob on the runtime SA.
+    "iamcredentials.googleapis.com",
   ]
 
   deploy_project_ids = {
