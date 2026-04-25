@@ -1,0 +1,83 @@
+[
+  {
+    "beginRendering": {
+      "surfaceId": "multi-series-bar-chart",
+      "root": "root"
+    }
+  },
+  {
+    "surfaceUpdate": {
+      "surfaceId": "multi-series-bar-chart",
+      "components": [
+        {
+          "id": "root",
+          "component": {
+            "Column": {
+              "children": { "explicitList": ["chart-container"] },
+              "alignment": "stretch"
+            }
+          }
+        },
+        {
+          "id": "chart-container",
+          "component": {
+            "Column": {
+              "children": { "explicitList": ["chart-header", "main-chart"] },
+              "alignment": "center"
+            }
+          }
+        },
+        {
+          "id": "chart-header",
+          "component": {
+            "Text": {
+              "text": { "literalString": "Forecast High vs Low (°F)" },
+              "usageHint": "h2"
+            }
+          }
+        },
+        {
+          "id": "main-chart",
+          "component": {
+            "VegaChart": {
+              "spec": {
+                "literalObject": {
+                  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+                  "data": {
+                    "values": [
+                      { "label": "Fri 4/24", "series": "High", "value": 82 },
+                      { "label": "Fri 4/24", "series": "Low", "value": 62 },
+                      { "label": "Sat 4/25", "series": "High", "value": 78 },
+                      { "label": "Sat 4/25", "series": "Low", "value": 58 },
+                      { "label": "Sun 4/26", "series": "High", "value": 72 },
+                      { "label": "Sun 4/26", "series": "Low", "value": 54 },
+                      { "label": "Mon 4/27", "series": "High", "value": 77 },
+                      { "label": "Mon 4/27", "series": "Low", "value": 59 },
+                      { "label": "Tue 4/28", "series": "High", "value": 83 },
+                      { "label": "Tue 4/28", "series": "Low", "value": 63 },
+                      { "label": "Wed 4/29", "series": "High", "value": 85 },
+                      { "label": "Wed 4/29", "series": "Low", "value": 63 }
+                    ]
+                  },
+                  "mark": "bar",
+                  "encoding": {
+                    "x": {
+                      "field": "label",
+                      "type": "nominal",
+                      "axis": { "labelAngle": 0 },
+                      "sort": null
+                    },
+                    "y": { "field": "value", "type": "quantitative" },
+                    "xOffset": { "field": "series", "type": "nominal" },
+                    "color": { "field": "series", "type": "nominal" }
+                  }
+                }
+              },
+              "height": { "literalNumber": 340 }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

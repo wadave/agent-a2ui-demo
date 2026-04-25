@@ -49,7 +49,7 @@
           "component": {
             "WebFrameUrl": {
               "url": {
-                "literalString": "https://drive.google.com/file/d/FILE_ID_HERE/preview"
+                "literalString": "https://docs.google.com/DOCS_PATH_HERE/d/FILE_ID_HERE/preview"
               }
             }
           }
@@ -59,7 +59,7 @@
           "component": {
             "Text": {
               "text": {
-                "literalString": "[Open in Drive](https://drive.google.com/file/d/FILE_ID_HERE/view)"
+                "literalString": "[Open in Drive](https://docs.google.com/DOCS_PATH_HERE/d/FILE_ID_HERE/edit)"
               }
             }
           }

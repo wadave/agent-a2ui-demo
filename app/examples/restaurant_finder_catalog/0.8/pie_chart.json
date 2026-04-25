@@ -1,0 +1,69 @@
+[
+  {
+    "beginRendering": {
+      "surfaceId": "pie-chart",
+      "root": "root"
+    }
+  },
+  {
+    "surfaceUpdate": {
+      "surfaceId": "pie-chart",
+      "components": [
+        {
+          "id": "root",
+          "component": {
+            "Column": {
+              "children": { "explicitList": ["chart-container"] },
+              "alignment": "stretch"
+            }
+          }
+        },
+        {
+          "id": "chart-container",
+          "component": {
+            "Column": {
+              "children": { "explicitList": ["chart-header", "main-chart"] },
+              "alignment": "center"
+            }
+          }
+        },
+        {
+          "id": "chart-header",
+          "component": {
+            "Text": {
+              "text": { "literalString": "Restaurants by Cuisine" },
+              "usageHint": "h2"
+            }
+          }
+        },
+        {
+          "id": "main-chart",
+          "component": {
+            "VegaChart": {
+              "spec": {
+                "literalObject": {
+                  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+                  "data": {
+                    "values": [
+                      { "label": "American", "value": 8 },
+                      { "label": "Chinese", "value": 5 },
+                      { "label": "Italian", "value": 4 },
+                      { "label": "Mexican", "value": 3 },
+                      { "label": "Japanese", "value": 2 }
+                    ]
+                  },
+                  "mark": "arc",
+                  "encoding": {
+                    "theta": { "field": "value", "type": "quantitative" },
+                    "color": { "field": "label", "type": "nominal" }
+                  }
+                }
+              },
+              "height": { "literalNumber": 320 }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

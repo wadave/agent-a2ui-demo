@@ -819,36 +819,40 @@ def add_presentation_slide(
 
 
 _PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+_GOOGLE_SLIDES_MIME = "application/vnd.google-apps.presentation"
 
 
 def upload_presentation(
     file_path: str, title: str | None = None, folder_name: str | None = None
 ) -> dict[str, Any]:
-    """Upload a local .pptx to Drive as-is (no Google Slides conversion).
+    """Upload a local .pptx to Drive and convert to native Google Slides.
 
-    Uploading with `mimeType=application/vnd.google-apps.presentation` triggers
-    a lossy pptx → native-Slides conversion that strips custom template
-    masters, layouts, and themes — exactly what we want to preserve when the
-    deck was built from the bundled corporate template. So we upload the
-    file with its real .pptx mimetype; Drive shows it as a PowerPoint file
-    and opens it in the Slides viewer with full fidelity.
+    The destination metadata uses `mimeType=application/vnd.google-apps.presentation`,
+    which triggers Drive's pptx → native-Slides conversion at upload time. The
+    converted file is then previewable via `https://docs.google.com/presentation/d/<id>/preview`,
+    which is on the GE UI iframe allowlist; the raw-`.pptx` URL on
+    `drive.google.com` is not. Conversion is lossy for custom PowerPoint
+    template masters/layouts — if pixel-perfect template fidelity matters more
+    than embedded preview, render slide thumbnails server-side instead.
     """
     import os
 
     if not os.path.exists(file_path):
         return {"ok": False, "error": f"Local file not found: {file_path}"}
 
-    # Ensure the destination keeps the .pptx extension. The LLM typically
-    # passes a bare title like "restaurants0", which would otherwise land
-    # in Drive without an extension and look broken.
+    # Native Slides files have no extension; strip .pptx from the supplied
+    # title so the file in Drive doesn't show as "restaurants0.pptx".
     name = title or os.path.basename(file_path)
-    if not name.lower().endswith(".pptx"):
-        name = f"{name}.pptx"
+    if name.lower().endswith(".pptx"):
+        name = name[:-5]
 
     if _USE_ADC:
         try:
             drive_service = _get_service("drive", "v3")
-            file_metadata = {"name": name, "mimeType": _PPTX_MIME}
+            file_metadata = {
+                "name": name,
+                "mimeType": _GOOGLE_SLIDES_MIME,
+            }
 
             from googleapiclient.http import MediaFileUpload
 
@@ -871,7 +875,7 @@ def upload_presentation(
                 "ok": True,
                 "data": {
                     "file_id": file_id,
-                    "url": f"https://drive.google.com/file/d/{file_id}/view",
+                    "url": f"https://docs.google.com/presentation/d/{file_id}/edit",
                 },
             }
         except HttpError as e:
@@ -882,7 +886,7 @@ def upload_presentation(
         # through --params. Earlier code passed `{"media": file_path}` in
         # --params which the API silently ignored, producing a 0-byte
         # placeholder.
-        body = {"name": name, "mimeType": _PPTX_MIME}
+        body = {"name": name, "mimeType": _GOOGLE_SLIDES_MIME}
         res = _run_gws(
             [
                 "drive",
@@ -909,7 +913,7 @@ def upload_presentation(
             "ok": True,
             "data": {
                 "file_id": file_id,
-                "url": f"https://drive.google.com/file/d/{file_id}/view",
+                "url": f"https://docs.google.com/presentation/d/{file_id}/edit",
             },
         }
 
