@@ -1,0 +1,129 @@
+@use 'google/cloud/discoveryengine/apps/ucs_widget/shared/theme';
+
+:host([data-theme='light']) {
+  @include theme.next-gen-light-theme;
+}
+
+:host([data-theme='dark']) {
+  @include theme.next-gen-dark-theme;
+}
+
+:host {
+  display: block;
+  height: 100vh;
+  width: 100vw;
+}
+
+.app-container {
+  background: var(--md-sys-color-background, var(--background-light));
+  color: var(--md-sys-color-on-background, var(--n-10));
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 256px;
+  border-right: 1px solid var(--md-sys-color-outline-variant, var(--n-90));
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  background: var(--md-sys-color-surface-container-low, var(--n-98));
+  transition: width 0.3s ease;
+}
+
+.sidebar.collapsed {
+  width: 80px;
+}
+
+.sidebar-header {
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-box {
+  background: var(--primary);
+  padding: 8px;
+  border-radius: 8px;
+  color: white;
+  box-shadow: 0 4px 12px rgba(19, 127, 236, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-text {
+  font-size: 20px;
+  font-weight: bold;
+  letter-spacing: -0.5px;
+}
+
+.nav-items {
+  flex: 1;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--n-40);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+}
+
+.nav-btn:hover {
+  background: var(--n-95);
+  color: var(--n-20);
+}
+
+.nav-btn.active {
+  background: rgba(19, 127, 236, 0.1);
+  color: var(--primary);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.header {
+  height: 64px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant, var(--n-90));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  background: var(--md-sys-color-surface, rgba(255, 255, 255, 0.8));
+  backdrop-filter: blur(12px);
+  z-index: 10;
+}
+
+.title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--md-sys-color-on-surface-variant, var(--n-40));
+}
+
+.view-container {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}

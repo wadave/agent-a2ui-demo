@@ -6,7 +6,7 @@
 - **Status:** Approved / Production-Ready
 - **Date:** April 24, 2026
 - **Author:** Antigravity (Senior Software Engineer)
-- **Repository:** [agent-a2ui-demo](file:///usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo)
+- **Repository:** [agent-a2ui-demo](./)
 
 ---
 
@@ -120,22 +120,22 @@ graph TB
 
 ### 2.3. Tier Responsibilities
 
-#### 2.3.1. Frontend Tier ([frontend/](file:///usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/frontend))
+#### 2.3.1. Frontend Tier ([frontend/](../frontend))
 - **`app.ts` (App Shell):** Hosts the main chat interface, manages user input, and renders the conversation history.
 - **`client.ts`:** Implements the A2A JSON-RPC client, encapsulating transport logic and header management (`X-A2A-Extensions`).
 - **`google-map-component.ts`:** Implements custom Lit web components for `GoogleMap` and `WebFrameUrl`. These components intercept A2UI payloads and render native iframes using the Google Maps Embed API.
 
-#### 2.3.2. A2A Protocol Tier ([app/main.py](file:///usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/app/main.py))
+#### 2.3.2. A2A Protocol Tier ([app/main.py](../app/main.py))
 - **`DefaultRequestHandler`:** The entry point for A2A JSON-RPC 2.0 messages. It parses incoming `message/send` and `userAction` requests and routes them to the appropriate executor.
 - **Content Negotiation:** Inspects the `X-A2A-Extensions` header to determine the A2UI capabilities of the client.
 
-#### 2.3.3. Backend Tier ([app/](file:///usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/app))
+#### 2.3.3. Backend Tier ([app/](../app))
 - **`RestaurantFinderExecutor` (`agent_executor.py`):** Overrides the standard `A2aAgentExecutor` to inject session state, determine the active A2UI version, and apply custom event converters.
 - **`_MapsKeyEventConverter` (`agent_executor.py`):** A post-processing interceptor that acts as a "safety ramp" and "hallucination repair" layer. It transforms LLM output into strictly compliant A2UI messages before transmission.
 - **`ADK Runner`:** The core ADK execution engine that manages agent invocation, tool calling, and state persistence.
 - **`Session Service`:** Manages conversation history and persistent session state (`VertexAiSessionService`).
 
-#### 2.3.4. Agent & Tools Tier ([app/agent.py](file:///usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/app/agent.py), [app/tools.py](file:///usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/app/tools.py))
+#### 2.3.4. Agent & Tools Tier ([app/agent.py](../app/agent.py), [app/tools.py](../app/tools.py))
 - **`RestaurantFinderAgent`:** The root Gemini agent. Configured with specialized system instructions (prompts) and A2UI examples tailored to the negotiated version.
 - **`tools.py`:** Defines Python functions exposed to the agent via ADK `@tool` annotations.
     - `find_restaurants`: Searches for restaurants using location data.
@@ -314,6 +314,6 @@ The repository enforces a comprehensive testing strategy via `Makefile` commands
 - **A2A Protocol Specification:** [https://a2aprotocol.ai/](https://a2aprotocol.ai/)
 - **A2UI Repository:** [https://github.com/google/A2UI](https://github.com/google/A2UI)
 - **Internal Documentation:**
-    - [Authentication Guide](file:///usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/docs/auth.md)
-    - [Schema Manager Details](file:///usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/docs/how_schema_manager_work.md)
-    - [A2UI Introduction](file:///usr/local/google/home/wangdave/remote_ws/projects/agent-a2ui-demo/docs/intro_a2ui.md)
+    - [Authentication Guide](../docs/auth.md)
+    - [Schema Manager Details](../docs/how_schema_manager_work.md)
+    - [A2UI Introduction](../docs/intro_a2ui.md)

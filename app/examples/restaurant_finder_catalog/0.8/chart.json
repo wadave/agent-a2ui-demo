@@ -31,7 +31,7 @@
           "id": "chart-header",
           "component": {
             "Text": {
-              "text": { "path": "/chart.title" },
+              "text": { "literalString": "Restaurants by Rating" },
               "usageHint": "h2"
             }
           }
@@ -39,32 +39,29 @@
         {
           "id": "main-chart",
           "component": {
-            "Chart": {
-              "type": "bar",
-              "title": { "path": "/chart.title" },
-              "chartData": { "path": "/chart.items" }
+            "VegaChart": {
+              "spec": {
+                "literalObject": {
+                  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+                  "mark": "bar",
+                  "encoding": {
+                    "x": {"field": "label", "type": "nominal", "title": "Restaurant"},
+                    "y": {"field": "value", "type": "quantitative", "title": "Rating"}
+                  },
+                  "data": {
+                    "values": [
+                      {"label": "Han Dynasty", "value": 4.6},
+                      {"label": "Urban Plates", "value": 4.4},
+                      {"label": "RedFarm", "value": 4.5},
+                      {"label": "Playa Provisions", "value": 4.3},
+                      {"label": "The Hatchery", "value": 4.1}
+                    ]
+                  }
+                }
+              }
             }
           }
         }
-      ]
-    }
-  },
-  {
-    "dataModelUpdate": {
-      "surfaceId": "sheet-chart",
-      "path": "/",
-      "contents": [
-        { "key": "chart.title", "valueString": "Restaurants by Rating" },
-        { "key": "chart.items[0].label", "valueString": "Han Dynasty" },
-        { "key": "chart.items[0].value", "valueNumber": 4.6 },
-        { "key": "chart.items[1].label", "valueString": "Urban Plates" },
-        { "key": "chart.items[1].value", "valueNumber": 4.4 },
-        { "key": "chart.items[2].label", "valueString": "RedFarm" },
-        { "key": "chart.items[2].value", "valueNumber": 4.5 },
-        { "key": "chart.items[3].label", "valueString": "Playa Provisions" },
-        { "key": "chart.items[3].value", "valueNumber": 4.3 },
-        { "key": "chart.items[4].label", "valueString": "The Hatchery" },
-        { "key": "chart.items[4].value", "valueNumber": 4.1 }
       ]
     }
   }

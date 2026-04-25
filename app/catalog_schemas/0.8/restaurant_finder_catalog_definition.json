@@ -683,72 +683,31 @@
       "required": [
         "children"
       ]
-    },
-    "Chart": {
+    }
+,
+    "VegaChart": {
       "type": "object",
-      "description": "An interactive chart that uses a hierarchical list of items (label + value, with optional drillDown). For categorical breakdowns use 'pie' or 'doughnut'; for ranked values use 'bar'.",
+      "description": "A Vega chart component implemented with Lit. Accepts a Vega-Lite spec.",
+      "additionalProperties": false,
       "properties": {
-        "type": {
-          "type": "string",
-          "description": "The type of chart to render.",
-          "enum": [
-            "doughnut",
-            "pie",
-            "bar"
-          ]
-        },
-        "title": {
+        "spec": {
           "type": "object",
-          "description": "The title of the chart. Can be a literal string or a data model path.",
+          "description": "The Vega/Vega-Lite specification.",
           "properties": {
-            "literalString": {
-              "type": "string"
+            "literalObject": {
+              "type": "object"
             },
             "path": {
               "type": "string"
             }
           }
         },
-        "chartData": {
+        "height": {
           "type": "object",
-          "description": "The data for the chart. Can be a literal array or a data model path.",
+          "description": "The height of the chart in pixels.",
           "properties": {
-            "literalArray": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "label": {
-                    "type": "string"
-                  },
-                  "value": {
-                    "type": "number"
-                  },
-                  "drillDown": {
-                    "type": "array",
-                    "description": "Optional next-level breakdown.",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "label": {
-                          "type": "string"
-                        },
-                        "value": {
-                          "type": "number"
-                        }
-                      },
-                      "required": [
-                        "label",
-                        "value"
-                      ]
-                    }
-                  }
-                },
-                "required": [
-                  "label",
-                  "value"
-                ]
-              }
+            "literalNumber": {
+              "type": "number"
             },
             "path": {
               "type": "string"
@@ -757,8 +716,7 @@
         }
       },
       "required": [
-        "type",
-        "chartData"
+        "spec"
       ]
     }
   }

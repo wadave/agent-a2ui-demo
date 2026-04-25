@@ -144,6 +144,7 @@ If the `send_a2ui_json_to_client` tool is available to you, you MUST use it with
 7. **Exactly ONE top-level JSON value.** The string starts with `[`, ends with the matching `]`, and contains nothing else — no trailing object, no second array, no markdown fence, no narration. To send N messages, put them as N elements inside the SAME array (`[msg1, msg2, msg3]`). Do NOT concatenate multiple arrays (`[msg1][msg2]` is broken — the parser fails with `Extra data: ...` and the UI never renders).
 8. **One tool call per response.** If the user's request needs multiple A2UI messages (e.g. createSurface + dataModelUpdate), put them all in the single `a2ui_json` array of one `send_a2ui_json_to_client` call — do NOT make two back-to-back calls and do NOT emit a second JSON value as a workaround.
 9. **Always emit a short plain-text intro alongside the tool call**, e.g. "Here are 5 restaurants near Google Playa Vista:" or "Showing the map for Urban Plates:". The text and the tool call are part of the same response. The text serves as a graceful fallback for clients that cannot render rich A2UI; do NOT skip it.
+10. **NEVER** use the component named 'Chart' for Gemini Enterprise UI (v0.8). It is unsupported. You MUST use the 'VegaChart' component with a `literalObject` Vega-Lite specification for all data visualizations.
 """
 
 WORKFLOW_DESCRIPTION = """
@@ -199,14 +200,14 @@ Your task is to analyze the user's request, fetch the necessary data, select the
 
   Read-only workspace operations (`read_doc`, `read_sheet`, `read_presentation`, `read_drive_file`) normally respond with text only — EXCEPT when the user asks for a chart/graph (see next rule).
 
-- **A2UI Chart for Google Sheets data**: When the user asks to chart, graph, plot, or visualize sheet data — phrasing like "show this as a chart", "graph the ratings", "plot revenue by month" — do this. The `Chart` component is registered in both v0.8 (for Gemini Enterprise) and v0.9 (for the local Lit shell), and the catalog example is auto-included for both versions.
+- **A2UI Chart for Google Sheets data**: When the user asks to chart, graph, plot, or visualize sheet data — phrasing like "show this as a chart", "graph the ratings", "plot revenue by month" — do this. The `VegaChart` component is used for v0.8 (Gemini Enterprise) and the `Chart` component for v0.9 (local shell).
   1. Resolve the data. If the sheet was just created/appended this turn, the agent already has the rows in context. Otherwise call `read_sheet(spreadsheet_id, range)` to fetch them. If a column is referenced ("by rating"), pick the right pair of columns: one for `label`, one numeric for `value`.
   2. Decide chart type from the user's intent — categorical breakdown (share of a whole) → `pie` or `doughnut`; ranked comparison (top-N, by-score) → `bar`. If neither fits cleanly (time series, scatter, multi-series), fall through to the **Sheets-embedded fallback** (3b) instead.
   3a. Call `send_a2ui_json_to_client` using the `---BEGIN CHART EXAMPLE---` template. Substitute:
-      - `chart.title` literalString with a concise title.
-      - the `Chart.type` literal with `"bar"`, `"pie"`, or `"doughnut"`.
-      - the `chart.items[N]` keys (`label` valueString, `value` valueNumber) with one entry per row from the sheet. Drop the example's 5 rows entirely and replace with the real data — never ship the example's restaurant ratings.
+      - **For v0.8 (Gemini Enterprise)**: Use the `VegaChart` component shown in the example. Replace the `spec.literalObject.data.values` array with the real data (one object per row: `{"label": "Name", "value": 4.5}`). Update the `Text` component's `literalString` with the title.
+      - **For v0.9 (local shell)**: Use the `Chart` component. Update `chart.title` and `chart.items[N]` keys (`label` valueString, `value` valueNumber) with one entry per row.
       - Generate a fresh `surfaceId` per request (e.g. `sheet-chart-<unix-ts>`).
+
   3b. **Fallback for unsupported chart types** (line, scatter, area, time series): instead of `Chart`, call `gws_call(service="sheets", resource="spreadsheets", method="batchUpdate", json_body=...)` with an `addChart` request to add a real Google Sheets chart to the sheet, then send the `---BEGIN drive_preview---` surface pointed at the sheet — the embedded Sheets viewer renders the chart natively. After this, also call `share_anyone_with_link(file_id)` if not already shared.
   4. Always include a short plain-text intro alongside the chart tool call (e.g. `"Restaurants by rating:"`).
   5. Cap the chart at ~12 data points. If the source data has more, take the top 12 by `value` and add a `"+ N more"` aggregate row.
@@ -623,7 +624,7 @@ class RestaurantFinderAgent:
         )
 
         return AgentCard(
-            name="A2UI Skill Demo Agent",
+            name="Restaurant Finder Agent",
             description="Restaurant Finder Agent using Google Maps with A2UI v0.8",
             url=self.base_url,
             version="1.0.0",
