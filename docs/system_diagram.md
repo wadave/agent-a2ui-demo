@@ -9,7 +9,7 @@ graph TB
     subgraph CloudRun["Cloud Run"]
         BE["ADK Backend\n(serves v0.8 + v0.9)"]
         Agent["Gemini Agent"]
-        Tools["find_restaurants\nget_directions\nmaps_agent"]
+        Tools["find_restaurants\nget_directions\nsearch_agent"]
 
         BE --> Agent
         Agent -->|"Tool calls"| Tools

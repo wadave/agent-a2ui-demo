@@ -494,3 +494,5 @@ scratch/
 .cline*
 .agent/
 .agents/
+ge_a2ui_demo/
+ge_custom_components/

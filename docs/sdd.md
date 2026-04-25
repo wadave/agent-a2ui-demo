@@ -39,7 +39,7 @@ graph TB
     User([User]) --> Frontend[Lit Frontend]
     Frontend -->|A2A JSON-RPC| Backend[ADK Backend]
     Backend --> Agent[Gemini Agent]
-    Agent --> Tools[find_restaurants<br/>get_directions<br/>maps_agent]
+    Agent --> Tools[find_restaurants<br/>get_directions<br/>search_agent]
     Tools -->|Grounding| GCP[Google Cloud<br/>Gemini API + Maps]
     Agent -->|A2UI JSON| Backend
     Backend -->|"Response<br/>Text + A2UI"| Frontend
@@ -86,7 +86,7 @@ graph TB
     subgraph "Tools"
         FindRest[find_restaurants]
         GetDir[get_directions]
-        MapsAgent[maps_agent - AgentTool]
+        SearchAgent[search_agent - AgentTool]
         Agent -->|"Tool Call"| FindRest
         Agent -->|"Tool Call"| GetDir
         Agent -->|"Tool Call"| MapsAgent
@@ -140,7 +140,7 @@ graph TB
 - **`tools.py`:** Defines Python functions exposed to the agent via ADK `@tool` annotations.
     - `find_restaurants`: Searches for restaurants using location data.
     - `get_directions`: Retrieves transit/driving directions.
-- **`sub_agents.py`:** Defines the `maps_agent`, a specialized sub-agent utilizing the `GoogleMapsGroundingTool` for precise location lookups.
+- **`sub_agents.py`:** Defines the `search_agent`, a specialized sub-agent utilizing the `GoogleSearchTool` for live web information lookups (e.g., weather).
 
 ---
 

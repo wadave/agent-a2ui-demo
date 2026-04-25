@@ -2,6 +2,19 @@
 
 An AI-powered restaurant finder agent built with Google ADK (Agent Development Kit) and the A2A (Agent-to-Agent) protocol, featuring a rich interactive UI powered by [A2UI](https://github.com/google/A2UI) — serving **v0.9** to a custom Lit shell and **v0.8** to Gemini Enterprise (GE) from a single backend.
 
+## Table of Contents
+- [System Description](#system-description)
+- [High-Level Architecture](#high-level-architecture)
+- [Detailed Architecture](#detailed-architecture)
+- [Data Flow](#data-flow)
+- [Project Structure](#project-structure)
+- [Requirements](#requirements)
+- [Private Package Registry](#private-package-registry)
+- [Local Testing](#local-testing)
+- [Cloud Deployment](#cloud-deployment)
+- [Commands Reference](#commands-reference)
+- [Key Technologies](#key-technologies)
+
 ## System Description
 
 This application demonstrates a full-stack AI agent architecture where:
@@ -19,7 +32,7 @@ graph TB
     User([User]) --> Frontend[Lit Frontend]
     Frontend -->|A2A | Backend[ADK Backend]
     Backend --> Agent[Gemini Agent]
-    Agent --> Tools[find_restaurants<br/>get_directions<br/>maps_agent]
+    Agent --> Tools[find_restaurants<br/>get_directions<br/>search_agent]
     Tools -->|Grounding| GCP[Google Cloud<br/>Gemini API + Maps]
     Agent -->|A2UI JSON| Backend
     Backend -->|"Response<br/>Text + A2UI"| Frontend
@@ -65,10 +78,10 @@ graph TB
     subgraph "Tools"
         FindRest[find_restaurants]
         GetDir[get_directions]
-        MapsAgent[maps_agent - AgentTool]
+        SearchAgent[search_agent - AgentTool]
         Agent -->|"Tool Call"| FindRest
         Agent -->|"Tool Call"| GetDir
-        Agent -->|"Tool Call"| MapsAgent
+        Agent -->|"Tool Call"| SearchAgent
     end
 
     subgraph "Google Cloud"
@@ -79,7 +92,7 @@ graph TB
         FindRest --> MapsGround
         GetDir --> GeminiAPI
         GetDir --> MapsGround
-        MapsAgent --> MapsGround
+        SearchAgent --> GeminiAPI
         Executor -.->|"API Key"| SecretMgr
     end
 
@@ -139,7 +152,7 @@ agent-a2ui-demo/
 │   ├── agent_executor.py       # A2A executor with A2UI validation & caching
 │   ├── main.py                 # Uvicorn entry point, serves frontend + A2A
 │   ├── tools.py                # find_restaurants, get_directions (Google Maps grounding)
-│   ├── sub_agents.py           # maps_agent (AgentTool with GoogleMapsGroundingTool)
+│   ├── sub_agents.py           # search_agent (AgentTool with GoogleSearchTool)
 │   ├── catalog_schemas/        # A2UI catalog definitions (JSON Schema)
 │   │   ├── 0.8/                # v0.8 catalog with GoogleMap, WebFrameUrl, etc. (for GE)
 │   │   └── 0.9/                # v0.9 catalog with GoogleMap, WebFrameUrl, etc. (for Lit shell)
@@ -234,30 +247,6 @@ make local-backend PORT=8080
 
 The app will be available at `http://localhost:8080`.
 
-### 3. Alternative: Run frontend and backend separately (hot-reload)
-
-```bash
-# Terminal 1 — backend with hot-reload
-make local-backend
-
-# Terminal 2 — frontend dev server (proxies API to backend)
-make frontend-dev
-```
-
-Frontend dev server runs at `http://localhost:5173` with hot-reload.
-
-### 4. Test with ADK Playground
-
-```bash
-make playground
-```
-
-### 5. Test with A2A Inspector
-
-```bash
-# Start backend first, then in another terminal:
-make inspector
-```
 
 ## Cloud Deployment
 
@@ -271,13 +260,7 @@ gcloud config set project <your-project-id>
 make deploy
 ```
 
-### Deploy with IAP (Identity-Aware Proxy)
-
-```bash
-make deploy IAP=true
-```
-
-### Set up CI/CD and infrastructure
+### Set up CI/CD and infrastructure (Optional)
 
 ```bash
 # One-command CI/CD pipeline setup

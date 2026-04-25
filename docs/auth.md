@@ -15,7 +15,7 @@ By default, local execution leverages the standalone **`gws` executable binary**
 ### Local setup
 Ensure your identity is cached locally:
 ```bash
-gws login
+gws auth login
 ```
 
 *Tokens are stored securely under `~/.config/gws/`.*
@@ -128,4 +128,14 @@ export WORKSPACE_USER_EMAIL="you@your-workspace-domain.com"
 
 `USE_ADC=TRUE` flips `_USE_ADC` on without `K_SERVICE` being set. `WORKSPACE_USER_EMAIL` is required whenever `_USE_ADC` is true — the workspace tools raise `RuntimeError` at first call without it.
 
-For this to work locally, your `gcloud auth application-default login` user (or whichever credential `google.auth.default()` returns) must hold `roles/iam.serviceAccountTokenCreator` on the SA you're impersonating. Otherwise the IAM Signer step gets a `403 Permission denied on resource ...` from `iamcredentials.googleapis.com:signBlob`.
+**Important for Local Testing**:
+Because the code attempts to resolve the Service Account email via the GCP Metadata Server (which does not exist locally), you cannot use standard user credentials (from `gcloud auth application-default login`) for this path.
+
+Instead, you must use a Service Account Key file:
+1.  Download a key file for the Service Account.
+2.  Set the environment variable:
+    ```bash
+    export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/sa-key.json"
+    ```
+
+The Service Account must still hold `roles/iam.serviceAccountTokenCreator` on its own resource, as described in the production setup.

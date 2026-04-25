@@ -283,7 +283,7 @@ flowchart TB
             direction LR
             FindRest["find_restaurants"]
             GetDir["get_directions"]
-            MapsAgent["maps_agent"]
+            SearchAgent["search_agent"]
         end
     end
 
@@ -661,7 +661,7 @@ agent-a2ui-demo/
 │   ├── agent.py                         # Agent definition, system prompt, tools
 │   ├── agent_executor.py                # A2A executor, A2UI session setup
 │   ├── tools.py                         # find_restaurants, get_directions
-│   ├── sub_agents.py                    # maps_agent (Google Maps grounding)
+│   ├── sub_agents.py                    # search_agent (Google Search grounding)
 │   ├── prompts.py                       # Restaurant search instructions
 │   ├── config.py                        # Environment config (GCP, model, keys)
 │   ├── session_keys.py                  # A2UI session state key constants
