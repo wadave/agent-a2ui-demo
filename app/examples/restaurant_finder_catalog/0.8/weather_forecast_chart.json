@@ -41,28 +41,26 @@
           "component": {
             "VegaChart": {
               "spec": {
-                "literalObject": {
-                  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-                  "data": {
-                    "values": [
-                      { "label": "Fri 4/24", "value": 82 },
-                      { "label": "Sat 4/25", "value": 78 },
-                      { "label": "Sun 4/26", "value": 72 },
-                      { "label": "Mon 4/27", "value": 77 },
-                      { "label": "Tue 4/28", "value": 83 },
-                      { "label": "Wed 4/29", "value": 85 }
-                    ]
+                "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+                "data": {
+                  "values": [
+                    { "label": "Fri 4/24", "value": 82 },
+                    { "label": "Sat 4/25", "value": 78 },
+                    { "label": "Sun 4/26", "value": 72 },
+                    { "label": "Mon 4/27", "value": 77 },
+                    { "label": "Tue 4/28", "value": 83 },
+                    { "label": "Wed 4/29", "value": 85 }
+                  ]
+                },
+                "mark": "bar",
+                "encoding": {
+                  "x": {
+                    "field": "label",
+                    "type": "nominal",
+                    "axis": { "labelAngle": 0 },
+                    "sort": null
                   },
-                  "mark": "bar",
-                  "encoding": {
-                    "x": {
-                      "field": "label",
-                      "type": "nominal",
-                      "axis": { "labelAngle": 0 },
-                      "sort": null
-                    },
-                    "y": { "field": "value", "type": "quantitative" }
-                  }
+                  "y": { "field": "value", "type": "quantitative" }
                 }
               }
             }

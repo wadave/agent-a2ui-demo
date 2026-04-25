@@ -41,22 +41,20 @@
           "component": {
             "VegaChart": {
               "spec": {
-                "literalObject": {
-                  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-                  "data": {
-                    "values": [
-                      { "label": "American", "value": 8 },
-                      { "label": "Chinese", "value": 5 },
-                      { "label": "Italian", "value": 4 },
-                      { "label": "Mexican", "value": 3 },
-                      { "label": "Japanese", "value": 2 }
-                    ]
-                  },
-                  "mark": "arc",
-                  "encoding": {
-                    "theta": { "field": "value", "type": "quantitative" },
-                    "color": { "field": "label", "type": "nominal" }
-                  }
+                "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+                "data": {
+                  "values": [
+                    { "label": "American", "value": 8 },
+                    { "label": "Chinese", "value": 5 },
+                    { "label": "Italian", "value": 4 },
+                    { "label": "Mexican", "value": 3 },
+                    { "label": "Japanese", "value": 2 }
+                  ]
+                },
+                "mark": "arc",
+                "encoding": {
+                  "theta": { "field": "value", "type": "quantitative" },
+                  "color": { "field": "label", "type": "nominal" }
                 }
               }
             }
