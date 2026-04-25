@@ -58,8 +58,7 @@
                     "color": { "field": "label", "type": "nominal" }
                   }
                 }
-              },
-              "height": { "literalNumber": 320 }
+              }
             }
           }
         }

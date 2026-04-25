@@ -64,8 +64,7 @@
                     "y": { "field": "value", "type": "quantitative" }
                   }
                 }
-              },
-              "height": { "literalNumber": 320 }
+              }
             }
           }
         }
