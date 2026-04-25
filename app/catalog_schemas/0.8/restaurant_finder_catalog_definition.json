@@ -692,27 +692,11 @@
       "properties": {
         "spec": {
           "type": "object",
-          "description": "The Vega/Vega-Lite specification.",
-          "properties": {
-            "literalObject": {
-              "type": "object"
-            },
-            "path": {
-              "type": "string"
-            }
-          }
+          "description": "The Vega/Vega-Lite specification."
         },
         "height": {
-          "type": "object",
-          "description": "The height of the chart in pixels.",
-          "properties": {
-            "literalNumber": {
-              "type": "number"
-            },
-            "path": {
-              "type": "string"
-            }
-          }
+          "type": "number",
+          "description": "The height of the chart in pixels."
         }
       },
       "required": [

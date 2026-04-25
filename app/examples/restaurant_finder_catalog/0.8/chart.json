@@ -41,22 +41,20 @@
           "component": {
             "VegaChart": {
               "spec": {
-                "literalObject": {
-                  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-                  "mark": "bar",
-                  "encoding": {
-                    "x": {"field": "label", "type": "nominal", "title": "Restaurant"},
-                    "y": {"field": "value", "type": "quantitative", "title": "Rating"}
-                  },
-                  "data": {
-                    "values": [
-                      {"label": "Han Dynasty", "value": 4.6},
-                      {"label": "Urban Plates", "value": 4.4},
-                      {"label": "RedFarm", "value": 4.5},
-                      {"label": "Playa Provisions", "value": 4.3},
-                      {"label": "The Hatchery", "value": 4.1}
-                    ]
-                  }
+                "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+                "mark": "bar",
+                "encoding": {
+                  "x": {"field": "label", "type": "nominal", "title": "Restaurant"},
+                  "y": {"field": "value", "type": "quantitative", "title": "Rating"}
+                },
+                "data": {
+                  "values": [
+                    {"label": "Han Dynasty", "value": 4.6},
+                    {"label": "Urban Plates", "value": 4.4},
+                    {"label": "RedFarm", "value": 4.5},
+                    {"label": "Playa Provisions", "value": 4.3},
+                    {"label": "The Hatchery", "value": 4.1}
+                  ]
                 }
               }
             }
