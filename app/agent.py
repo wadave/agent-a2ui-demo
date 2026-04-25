@@ -155,7 +155,8 @@ Your task is to analyze the user's request, fetch the necessary data, select the
     * "Show it on the map" -> **Intent:** Map View.
     * "How do I get there?" -> **Intent:** Directions.
     * "Tell me about Han Dynasty" -> **Intent:** Restaurant Details (text only).
-    * "What's the weather in Playa Vista?" / "Will it rain tomorrow?" -> **Intent:** Weather / live web lookup. Delegate to the `search_agent` sub-agent (it has Google Search grounding) and return its findings as plain text with source attribution. Do NOT call `send_a2ui_json_to_client` for weather responses.
+    * "What's the weather in Playa Vista?" / "Will it rain tomorrow?" -> **Intent:** Weather / live web lookup. Delegate to the `search_agent` sub-agent (it has Google Search grounding) and return its findings as plain text with source attribution. Do NOT call `send_a2ui_json_to_client` for weather responses, UNLESS the user explicitly asks to chart, graph, or visualize the data, in which case you MUST use the `VegaChart` component (for v0.8).
+
 
 2.  **Fetch Data:** Select and use the appropriate tool.
     * Use **`find_restaurants`** for searching restaurants by query. Always pass the complete location context.
@@ -200,13 +201,14 @@ Your task is to analyze the user's request, fetch the necessary data, select the
 
   Read-only workspace operations (`read_doc`, `read_sheet`, `read_presentation`, `read_drive_file`) normally respond with text only — EXCEPT when the user asks for a chart/graph (see next rule).
 
-- **A2UI Chart for Google Sheets data**: When the user asks to chart, graph, plot, or visualize sheet data — phrasing like "show this as a chart", "graph the ratings", "plot revenue by month" — do this. The `VegaChart` component is used for v0.8 (Gemini Enterprise) and the `Chart` component for v0.9 (local shell).
-  1. Resolve the data. If the sheet was just created/appended this turn, the agent already has the rows in context. Otherwise call `read_sheet(spreadsheet_id, range)` to fetch them. If a column is referenced ("by rating"), pick the right pair of columns: one for `label`, one numeric for `value`.
+- **A2UI Chart for Data**: When the user asks to chart, graph, plot, or visualize data (whether from a Google Sheet or provided directly in the prompt) — phrasing like "show this as a chart", "graph the ratings", "plot revenue by month" — do this. The `VegaChart` component is used for v0.8 (Gemini Enterprise) and the `Chart` component for v0.9 (local shell).
+  1. Resolve the data. If the data is provided directly in the prompt, use it. If the sheet was just created/appended this turn, the agent already has the rows in context. Otherwise call `read_sheet(spreadsheet_id, range)` to fetch them. If a column is referenced ("by rating"), pick the right pair of columns: one for `label`, one numeric for `value`.
   2. Decide chart type from the user's intent — categorical breakdown (share of a whole) → `pie` or `doughnut`; ranked comparison (top-N, by-score) → `bar`. If neither fits cleanly (time series, scatter, multi-series), fall through to the **Sheets-embedded fallback** (3b) instead.
   3a. Call `send_a2ui_json_to_client` using the `---BEGIN CHART EXAMPLE---` template. Substitute:
       - **For v0.8 (Gemini Enterprise)**: Use the `VegaChart` component shown in the example. Replace the `spec.literalObject.data.values` array with the real data (one object per row: `{"label": "Name", "value": 4.5}`). Update the `Text` component's `literalString` with the title.
       - **For v0.9 (local shell)**: Use the `Chart` component. Update `chart.title` and `chart.items[N]` keys (`label` valueString, `value` valueNumber) with one entry per row.
       - Generate a fresh `surfaceId` per request (e.g. `sheet-chart-<unix-ts>`).
+
 
   3b. **Fallback for unsupported chart types** (line, scatter, area, time series): instead of `Chart`, call `gws_call(service="sheets", resource="spreadsheets", method="batchUpdate", json_body=...)` with an `addChart` request to add a real Google Sheets chart to the sheet, then send the `---BEGIN drive_preview---` surface pointed at the sheet — the embedded Sheets viewer renders the chart natively. After this, also call `share_anyone_with_link(file_id)` if not already shared.
   4. Always include a short plain-text intro alongside the chart tool call (e.g. `"Restaurants by rating:"`).
