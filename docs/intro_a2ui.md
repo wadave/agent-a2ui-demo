@@ -15,6 +15,48 @@ Instead of returning plain text, an agent emits a declarative JSON payload descr
 
 ---
 
+## Relationship between CopilotKit/AG-UI, Lit/Flutter/Angular, A2A, and A2UI
+
+### The Setup
+You build a Web Application.
+
+*   You use **CopilotKit/AG-UI** to build the overall application shell (the chat window, the input box, the state management).
+*   Inside that shell, you register an **A2UI Renderer** built with **Lit, Flutter, or Angular** to handle drawing rich cards.
+
+### The Interaction (Step-by-Step)
+
+#### 1. The Request (Client Side)
+The user types *"Show me a map of local bakeries"* into the CopilotKit/AG-UI chat wrapper.
+
+The application uses the **A2A Client** library running in the browser to package this text into a standard `JSON-RPC` message.
+
+#### 2. The Transport (Both Sides)
+This is where **A2A** shines as a full-stack protocol.
+
+The **A2A Client** (Browser) sends the message over HTTP/WebSockets.
+The **A2A Server** (Backend) receives the message, authenticates it, and passes it to the AI Agent.
+
+#### 3. The Response (Server Side)
+The AI Agent fetches the bakery locations and decides a map is the best UI to show.
+
+It generates the **A2UI Blueprint** (the JSON describing the Map component).
+The **A2A Server** attaches this blueprint to the response and sends it back across the network to the client.
+
+#### 4. The Rendering (Client Side)
+The message arrives back at the browser.
+
+The **CopilotKit/AG-UI wrapper** receives the message and sees the A2UI blueprint inside it.
+It hands that blueprint to the low-level **Lit/Flutter/Angular** engine.
+The engine "paints" the interactive Google Map card right inside the chat history.
+
+### Summary
+*   **CopilotKit/AG-UI** owns the **App Experience** (Client).
+*   **Lit/Flutter/Angular** own the **Pixel Drawing** (Client).
+*   **A2A** owns the **Conversation Pipeline** (Client & Server).
+*   **A2UI** is the **Cargo** moving through the pipeline (Data).
+
+---
+
 ## Versions
 
 | Version | Status | Notes |
