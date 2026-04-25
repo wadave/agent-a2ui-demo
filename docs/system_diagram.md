@@ -2,7 +2,7 @@
 
 ```mermaid
 graph TB
-    User([User]) --> FE["Lit Frontend<br/>(A2UI Renderer)"]
+    User([User]) --> FE["GE UI or <br/>Custom Frontend<br/>(A2UI Renderer)"]
 
     FE -->|"A2A / JSON-RPC"| BE
 
