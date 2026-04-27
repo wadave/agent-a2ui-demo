@@ -1,6 +1,6 @@
 # A developer's guide to Gemini Enterprise and A2UI integration
 
-April 2026. Audience: developers building agents on Google Cloud.
+Audience: Developers building agents on Google Cloud.
 
 If you've built a chatbot, you know this conversation:
 
@@ -11,7 +11,7 @@ If you've built a chatbot, you know this conversation:
 
 A date picker would have ended this in one tap. But until recently, agents had no standard way to render a date picker — or a map, or a multi-select list — inside the chat surface they live in. They could only return text.
 
-Today, we're walking through how to fix that with **A2UI**, an open protocol for agent-driven user interfaces, and how to integrate an A2UI-enabled agent with **Gemini Enterprise** so the same agent renders rich UI in the GE chat surface and in your own custom frontend. We'll use a working restaurant-finder agent — built with the Google Agent Development Kit (ADK), the A2A protocol, and Gemini — as the reference. The full source is on [GitHub](https://github.com/wadave/agent-a2ui-demo) and there's a [3-minute demo video](https://youtu.be/_5AaYwyqVio).
+Today, we're walking through how to fix that with **A2UI**, an open protocol for agent-driven user interfaces, and how to integrate an A2UI-enabled agent with **Gemini Enterprise** so your agent renders rich UI natively within the managed GE chat surface without requiring you to build custom frontends. We'll use a working restaurant-finder agent — built with the Google Agent Development Kit (ADK), the A2A protocol, and Gemini — as the reference. The full source is on [GitHub](https://github.com/wadave/agent-a2ui-demo) and there's a [3-minute demo video](https://youtu.be/_5AaYwyqVio).
 
 ## The problem: agents speak text, but users want UI
 
@@ -91,7 +91,7 @@ A worth-calling-out detail: because your agent doesn't ship its own renderer for
 
 ## High-level architecture example
 
-The reference implementation is a single ADK backend on Cloud Run that serves both the GE renderer and a custom Lit web shell. Same agent, same tools — the right A2UI message pattern emitted on demand.
+The reference implementation is an ADK backend on Cloud Run designed to plug seamlessly into Gemini Enterprise.
 
 ```mermaid
 graph TB
@@ -125,10 +125,8 @@ graph TB
     style CloudRun stroke-dasharray:5 5,fill:#fafafa
 ```
 
-A few things to notice:
-
-- The frontend is interchangeable. GE's chat surface and the custom Lit shell both speak A2A JSON-RPC and both end up calling the same `/a2a-rpc` endpoint.
-- The Gemini agent picks the message pattern (inline vs. decoupled) based on what the client advertises in its `X-A2A-Extensions` header. Adding support for a new revision is one more catalog plus a new branch in the negotiation.
+- Gemini Enterprise connects directly to your agent using standard A2A JSON-RPC calls.
+- The agent serves the inline message pattern expected by the Gemini Enterprise managed UI.
 - Custom components like `GoogleMap` render via Google Maps Embed iframes, with the API key injected server-side so the LLM never sees it.
 
 ## Implementation guide
@@ -248,8 +246,10 @@ These get injected into the agent's system prompt automatically — they're how 
 Pin the schema manager to whichever A2UI revision your client speaks (e.g., the one bundled with the SDK release you're using). Keep this version string in one place — config — so swapping in a new revision later is a one-line change:
 
 ```python
-from a2ui.core.schema.manager import A2uiSchemaManager, CatalogConfig
-from a2ui.core.schema.common_modifiers import remove_strict_validation
+from a2ui.schema.manager import A2uiSchemaManager
+from a2ui.schema.catalog import CatalogConfig
+from a2ui.schema.catalog_provider import FileSystemCatalogProvider
+from a2ui.schema.common_modifiers import remove_strict_validation
 from a2ui.basic_catalog.provider import BasicCatalog
 
 A2UI_VERSION = settings.a2ui_version  # e.g., from env or config
@@ -257,10 +257,10 @@ A2UI_VERSION = settings.a2ui_version  # e.g., from env or config
 schema_manager = A2uiSchemaManager(
     version=A2UI_VERSION,
     catalogs=[
-        CatalogConfig.from_path(
+        CatalogConfig(
             name="my_catalog",
-            catalog_path=f"catalog_schemas/{A2UI_VERSION}/my_catalog_definition.json",
-            examples_path=f"examples/my_catalog/{A2UI_VERSION}",
+            provider=FileSystemCatalogProvider("catalog_schemas/my_catalog_definition.json"),
+            examples_path="examples/my_catalog",
         ),
         BasicCatalog.get_config(version=A2UI_VERSION),
     ],
@@ -289,7 +289,7 @@ We deliberately load examples through session state at request time rather than 
 The agent gets one extra tool — `send_a2ui_json_to_client` — alongside its normal domain tools. The lambdas read from session state, which the executor populates during the handshake:
 
 ```python
-from a2ui.adk.a2a_extension.send_a2ui_to_client_toolset import SendA2uiToClientToolset
+from a2ui.adk.send_a2ui_to_client_toolset import SendA2uiToClientToolset
 
 LlmAgent(
     model=model,
@@ -314,13 +314,13 @@ This is the handshake step. When a request arrives, your A2A executor needs to d
 3. **Select** the matching catalog and load its examples, optionally narrowing the catalog further based on any client capabilities advertised in the request.
 4. **Persist** the result into session state so the toolset lambdas from Step 5 can find the catalog and examples on every subsequent turn.
 
-The reference repo wires this up in `AgentExecutor._prepare_session()` using helpers from the A2UI Python SDK (`try_activate_a2ui_extension`, `schema_manager.get_selected_catalog`, `schema_manager.load_examples`) and writes the result into ADK session state via an `EventActions(state_delta=...)`. The full snippet is in `app/agent_executor.py` of the [reference implementation](https://github.com/wadave/agent-a2ui-demo) — copy it as-is for ADK projects, or replicate the same four steps in whatever agent runtime you're using.
+The reference repo wires this up in the executor's `_prepare_session()` using helpers from the A2UI Python SDK (`try_activate_a2ui_extension`, `schema_manager.get_selected_catalog`, `schema_manager.load_examples`) and writes the result into ADK session state via an `EventActions(state_delta=...)`. The full snippet is in `app/agent_executor.py` of the [reference implementation](https://github.com/wadave/agent-a2ui-demo) — copy it as-is for ADK projects, or replicate the same four steps in whatever agent runtime you're using.
 
-#### Step 7. Register custom components in the frontend
+#### Step 7. (Optional) Standalone Testing & Custom Frontends
 
-If you're building your own renderer (the GE case skips this entirely — GE has its own), each custom component pairs a Zod schema (its API contract) with a Lit element that draws it.
+Gemini Enterprise handles drawing components automatically using its built-in renderer. If you *do* want to test outside of GE, you can build your own standalone renderer by pairing a schema (its API contract) with a UI component (like Lit or Flutter) that draws it.
 
-That's the whole loop. The agent now emits UI in whichever A2UI message pattern the calling client speaks — without you running two backends. New revisions of the protocol drop into the same scaffolding: add a catalog, add examples, register them with the schema manager.
+That's the whole loop. The agent is ready to serve interactive graphical components natively inside Gemini Enterprise.
 
 ## See it running, then build your own
 
