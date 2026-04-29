@@ -1,0 +1,82 @@
+[
+  { "beginRendering": { "surfaceId": "wp-lost-pipeline", "root": "root" }},
+  { "surfaceUpdate": { "surfaceId": "wp-lost-pipeline", "components": [
+    { "id": "root", "component": { "Column": { "children": { "explicitList": [
+        "page-title","page-subtitle","kpi-row","donut-section","hbar-section","insight-card","citation-text"
+    ]}, "alignment": "stretch" }}},
+    { "id": "page-title",    "component": { "Text": { "text": { "literalString": "AskIBM lost pipeline analysis — Q1 2026" }, "usageHint": "h2" }}},
+    { "id": "page-subtitle", "component": { "Text": { "text": { "literalString": "$483.46M lost across 6,774 opportunities · breakdown by primary reason" }, "usageHint": "caption" }}},
+
+    { "id": "kpi-row", "component": { "Row": { "children": { "explicitList": ["kpi-1","kpi-2","kpi-3"] }, "distribution": "spaceBetween", "alignment": "start" }}},
+    { "id": "kpi-1",     "component": { "Card": { "child": "kpi-1-col" }}},
+    { "id": "kpi-1-col", "component": { "Column": { "children": { "explicitList": ["kpi-1-label","kpi-1-value","kpi-1-sub"] }, "alignment": "start" }}},
+    { "id": "kpi-1-label","component": { "Text": { "text": { "literalString": "Total lost pipeline value" }, "usageHint": "caption" }}},
+    { "id": "kpi-1-value","component": { "Text": { "text": { "literalString": "$483.46M" }, "usageHint": "h1" }}},
+    { "id": "kpi-1-sub",  "component": { "Text": { "text": { "literalString": "6,774 opportunities" }, "usageHint": "caption" }}},
+    { "id": "kpi-2",     "component": { "Card": { "child": "kpi-2-col" }}},
+    { "id": "kpi-2-col", "component": { "Column": { "children": { "explicitList": ["kpi-2-label","kpi-2-value","kpi-2-sub"] }, "alignment": "start" }}},
+    { "id": "kpi-2-label","component": { "Text": { "text": { "literalString": "IBM did not pursue" }, "usageHint": "caption" }}},
+    { "id": "kpi-2-value","component": { "Text": { "text": { "literalString": "$226.26M" }, "usageHint": "h1" }}},
+    { "id": "kpi-2-sub",  "component": { "Text": { "text": { "literalString": "46.8% · 3,170 opps" }, "usageHint": "caption" }}},
+    { "id": "kpi-3",     "component": { "Card": { "child": "kpi-3-col" }}},
+    { "id": "kpi-3-col", "component": { "Column": { "children": { "explicitList": ["kpi-3-label","kpi-3-value","kpi-3-sub"] }, "alignment": "start" }}},
+    { "id": "kpi-3-label","component": { "Text": { "text": { "literalString": "Customer did not pursue" }, "usageHint": "caption" }}},
+    { "id": "kpi-3-value","component": { "Text": { "text": { "literalString": "$157.61M" }, "usageHint": "h1" }}},
+    { "id": "kpi-3-sub",  "component": { "Text": { "text": { "literalString": "32.6% · 2,208 opps" }, "usageHint": "caption" }}},
+
+    { "id": "donut-section", "component": { "Column": { "children": { "explicitList": ["donut-header","donut-chart"] }, "alignment": "stretch" }}},
+    { "id": "donut-header",  "component": { "Text": { "text": { "literalString": "Lost pipeline by reason — share of value" }, "usageHint": "h3" }}},
+    { "id": "donut-chart",   "component": { "VegaChart": { "spec": {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      "data": { "values": [
+        { "label": "IBM did not pursue",       "value": 46.8 },
+        { "label": "Customer did not pursue",  "value": 32.6 },
+        { "label": "Partner did not pursue",   "value": 8.3 },
+        { "label": "Unassigned",                "value": 8.2 },
+        { "label": "For TLS use only",          "value": 2.3 },
+        { "label": "Lost to competition",       "value": 1.7 },
+        { "label": "For IBM financing only",    "value": 0.1 }
+      ]},
+      "mark": { "type": "arc", "innerRadius": 60, "outerRadius": 110 },
+      "encoding": {
+        "theta": { "field": "value", "type": "quantitative", "stack": true },
+        "color": {
+          "field": "label", "type": "nominal",
+          "scale": { "range": ["#fa4d56","#ff832b","#4589ff","#a8a8a8","#c6c6c6","#42be65","#e0e0e0"] },
+          "legend": { "orient": "right", "title": null }
+        },
+        "order": { "field": "value", "sort": "descending" }
+      },
+      "view": { "stroke": null }
+    }}}},
+
+    { "id": "hbar-section", "component": { "Column": { "children": { "explicitList": ["hbar-header","hbar-chart"] }, "alignment": "stretch" }}},
+    { "id": "hbar-header",  "component": { "Text": { "text": { "literalString": "Lost pipeline value by reason ($M)" }, "usageHint": "h3" }}},
+    { "id": "hbar-chart",   "component": { "VegaChart": { "spec": {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      "data": { "values": [
+        { "label": "IBM did not pursue",       "value": 226.26 },
+        { "label": "Customer did not pursue",  "value": 157.61 },
+        { "label": "Partner did not pursue",   "value": 40.13 },
+        { "label": "Unassigned",                "value": 39.64 },
+        { "label": "For TLS use only",          "value": 11.12 },
+        { "label": "Lost to competition",       "value": 8.22 },
+        { "label": "For IBM financing only",    "value": 0.48 }
+      ]},
+      "mark": "bar",
+      "encoding": {
+        "y": { "field": "label", "type": "nominal", "sort": "-x", "title": null },
+        "x": { "field": "value", "type": "quantitative", "title": "$M" },
+        "color": {
+          "field": "label", "type": "nominal",
+          "scale": { "range": ["#fa4d56","#ff832b","#4589ff","#a8a8a8","#c6c6c6","#42be65","#e0e0e0"] },
+          "legend": null
+        }
+      }
+    }}}},
+
+    { "id": "insight-card","component": { "Card": { "child": "insight-text" }}},
+    { "id": "insight-text","component": { "Text": { "text": { "literalString": "Insight: $226.26M (46.8%) of lost pipeline traces to opportunities IBM declined to pursue — the largest single bucket. Combined with the 32.6% 'Customer did not pursue' segment, nearly 80% of lost value reflects qualification + engagement gaps rather than direct competitive losses (only 1.7%)." }, "usageHint": "body" }}},
+    { "id": "citation-text","component": { "Text": { "text": { "literalString": "Source: Q1 2026 US Select Whitepaper, p. 5 (total) · AskEPM illustrative drill-down by reason" }, "usageHint": "caption" }}}
+  ]}}
+]

@@ -1,0 +1,237 @@
+{
+  "document": "Q1 2026 US Select Territory Sales Performance Whitepaper",
+  "period": "Q1 2026 (January 1 - March 31, 2026)",
+  "source_pdf": "app/assets/whitepapers/q1_2026_us_select_whitepaper.pdf",
+  "sections": {
+    "cq_performance_vs_budget": {
+      "page": 3,
+      "derived": false,
+      "title": "AskIBM CQ performance vs budget — Q1 2026",
+      "subtitle": "Transactional and SaaS budget against won pipeline",
+      "kpis_primary": [
+        { "label": "Transactional budget", "value": "$51.16M", "tone": "neutral" },
+        { "label": "Transactional won",    "value": "$25.79M", "tone": "highlight" },
+        { "label": "SaaS budget",          "value": "$31.62M", "tone": "neutral" },
+        { "label": "SaaS won",             "value": "$11.50M", "tone": "highlight" }
+      ],
+      "stacked_bar": [
+        { "category": "Transactional", "series": "Won pipeline", "value": 25.79 },
+        { "category": "Transactional", "series": "Budget gap",   "value": 25.37 },
+        { "category": "SaaS",          "series": "Won pipeline", "value": 11.50 },
+        { "category": "SaaS",          "series": "Budget gap",   "value": 20.12 }
+      ],
+      "kpis_secondary": [
+        { "label": "Transactional attainment", "value": "50.4%",   "tone": "neutral" },
+        { "label": "SaaS attainment",          "value": "36.4%",   "tone": "negative" },
+        { "label": "Transactional budget gap", "value": "-$25.37M", "tone": "negative" },
+        { "label": "SaaS budget gap",          "value": "-$20.12M", "tone": "negative" }
+      ],
+      "insight": "Both segments are tracking below 51% of Q1 2026 budget. Transactional carries the larger dollar shortfall at -$25.37M (50.4% attainment); SaaS trails further on attainment rate at 36.4% with a -$20.12M gap.",
+      "citation": "Source: Q1 2026 US Select Whitepaper, p. 3"
+    },
+    "lost_pipeline_by_reason": {
+      "page": 5,
+      "derived": true,
+      "title": "AskIBM lost pipeline analysis — Q1 2026",
+      "subtitle": "$483.46M lost across 6,774 opportunities, broken down by primary loss reason",
+      "kpis": [
+        { "label": "Total lost pipeline value", "value": "$483.46M", "sub": "6,774 opportunities" },
+        { "label": "IBM did not pursue",        "value": "$226.26M", "sub": "46.8% · 3,170 opps" },
+        { "label": "Customer did not pursue",   "value": "$157.61M", "sub": "32.6% · 2,208 opps" }
+      ],
+      "donut": [
+        { "label": "IBM did not pursue",       "value": 46.8 },
+        { "label": "Customer did not pursue",  "value": 32.6 },
+        { "label": "Partner did not pursue",   "value": 8.3 },
+        { "label": "Unassigned",                "value": 8.2 },
+        { "label": "For TLS use only",          "value": 2.3 },
+        { "label": "Lost to competition",       "value": 1.7 },
+        { "label": "For IBM financing only",    "value": 0.1 }
+      ],
+      "horizontal_bar": [
+        { "label": "IBM did not pursue",       "value": 226.26 },
+        { "label": "Customer did not pursue",  "value": 157.61 },
+        { "label": "Partner did not pursue",   "value": 40.13 },
+        { "label": "Unassigned",                "value": 39.64 },
+        { "label": "For TLS use only",          "value": 11.12 },
+        { "label": "Lost to competition",       "value": 8.22 },
+        { "label": "For IBM financing only",    "value": 0.48 }
+      ],
+      "insight": "$226.26M (46.8%) of lost pipeline traces to opportunities IBM declined to pursue — the largest single bucket. Combined with the 32.6% 'Customer did not pursue' segment, nearly 80% of lost value reflects qualification + engagement gaps rather than direct competitive losses (only 1.7%).",
+      "citation": "Source: Q1 2026 US Select Whitepaper, p. 5 (total) · AskEPM illustrative drill-down by reason"
+    },
+    "pipeline_coverage_by_category": {
+      "page": 4,
+      "derived": true,
+      "title": "Q1 2026 pipeline coverage by select product category",
+      "subtitle": "Qualify+ pipeline ($264.10M total) split across 4 product categories",
+      "kpis": [
+        { "label": "Focus — qualify+ coverage",        "value": "338.8%", "sub": "Call: 84.5% · $93.0M pipeline" },
+        { "label": "Key Core — qualify+ coverage",     "value": "198.8%", "sub": "Call: 56.3% · $133.0M pipeline" },
+        { "label": "Special Team (Key Core)",          "value": "1,376%", "sub": "Call: 616.7% · $2.1M pipeline" },
+        { "label": "Unassigned — qualify+ coverage",   "value": "187.6%", "sub": "Call: 61.9% · $36.0M pipeline" }
+      ],
+      "grouped_bar": [
+        { "category": "Focus",       "series": "Combined budget",  "value": 27.4 },
+        { "category": "Focus",       "series": "Qualify+ pipeline", "value": 92.95 },
+        { "category": "Key Core",    "series": "Combined budget",  "value": 66.9 },
+        { "category": "Key Core",    "series": "Qualify+ pipeline", "value": 132.97 },
+        { "category": "Special Team", "series": "Combined budget", "value": 0.15 },
+        { "category": "Special Team", "series": "Qualify+ pipeline", "value": 2.06 },
+        { "category": "Unassigned",  "series": "Combined budget",  "value": 19.18 },
+        { "category": "Unassigned",  "series": "Qualify+ pipeline", "value": 36.12 }
+      ],
+      "call_coverage_bar": [
+        { "category": "Focus",       "value": 84.5,  "status": "On track" },
+        { "category": "Key Core",    "value": 56.3,  "status": "Below" },
+        { "category": "Special Team", "value": 616.7, "status": "Above" },
+        { "category": "Unassigned",  "value": 61.9,  "status": "Below" }
+      ],
+      "table": [
+        { "Category": "Focus",        "Trans Budget": 11.0, "SaaS Budget": 15.1, "Q+ Pipeline": 92.95,  "Q+ Coverage": 3.388, "Call Pipeline": 23.16, "Call Coverage": 0.845 },
+        { "Category": "Key Core",     "Trans Budget": 26.8, "SaaS Budget": 5.7,  "Q+ Pipeline": 132.97, "Q+ Coverage": 1.988, "Call Pipeline": 37.68, "Call Coverage": 0.563 },
+        { "Category": "Special Team", "Trans Budget": 0.05, "SaaS Budget": 0.10, "Q+ Pipeline": 2.06,   "Q+ Coverage": 13.76, "Call Pipeline": 0.93,  "Call Coverage": 6.167 },
+        { "Category": "Unassigned",   "Trans Budget": 13.2, "SaaS Budget": 9.8,  "Q+ Pipeline": 36.12,  "Q+ Coverage": 1.876, "Call Pipeline": 14.24, "Call Coverage": 0.619 }
+      ],
+      "insight": "Qualify+ coverage exceeds 100% across all 4 categories — pipeline foundation is broadly healthy. Call coverage is weakest in Key Core (56.3%) and Unassigned (61.9%); Special Team's 616.7% reflects very small call-stage budget rather than true overperformance.",
+      "citation": "Source: Q1 2026 US Select Whitepaper, p. 4 (totals) · AskEPM illustrative drill-down by product category"
+    },
+    "ut15_saas_underperformance": {
+      "page": 3,
+      "derived": true,
+      "title": "UT15 SaaS underperformance — Q1 2026",
+      "subtitle": "SaaS budget $31.62M (whitepaper p.3) split across 4 UT15 platforms",
+      "kpis": [
+        { "label": "UT15s with SaaS budget", "value": "4",        "sub": "Platforms tracked" },
+        { "label": "UT15s underperforming",  "value": "3",        "sub": "Below 80% attainment" },
+        { "label": "Total SaaS budget gap",  "value": "-$20.12M", "sub": "vs $31.62M target" }
+      ],
+      "grouped_bar": [
+        { "ut15": "Automation Platform",        "series": "SaaS budget",       "value": 13.4 },
+        { "ut15": "Automation Platform",        "series": "SaaS won pipeline", "value": 7.7 },
+        { "ut15": "Data Platform",              "series": "SaaS budget",       "value": 8.4 },
+        { "ut15": "Data Platform",              "series": "SaaS won pipeline", "value": 2.7 },
+        { "ut15": "Public Cloud Platform",      "series": "SaaS budget",       "value": 1.3 },
+        { "ut15": "Public Cloud Platform",      "series": "SaaS won pipeline", "value": 1.0 },
+        { "ut15": "Public Cloud Platform - Infra (IUO)", "series": "SaaS budget",       "value": 8.5 },
+        { "ut15": "Public Cloud Platform - Infra (IUO)", "series": "SaaS won pipeline", "value": 0.0 }
+      ],
+      "attainment_bar": [
+        { "ut15": "Automation Platform",                  "pct": 57.4, "status": "Under" },
+        { "ut15": "Data Platform",                         "pct": 32.2, "status": "Under" },
+        { "ut15": "Public Cloud Platform",                 "pct": 73.9, "status": "Under" },
+        { "ut15": "Public Cloud Platform - Infra (IUO)",   "pct": 0.0,  "status": "Under" }
+      ],
+      "table": [
+        { "UT15": "Automation Platform",                  "SaaS Budget": 13.4, "SaaS Won": 7.7, "Gap": -5.7, "Attainment": 0.574, "Status": "Under" },
+        { "UT15": "Data Platform",                         "SaaS Budget": 8.4,  "SaaS Won": 2.7, "Gap": -5.7, "Attainment": 0.322, "Status": "Under" },
+        { "UT15": "Public Cloud Platform",                 "SaaS Budget": 1.3,  "SaaS Won": 1.0, "Gap": -0.3, "Attainment": 0.739, "Status": "Under" },
+        { "UT15": "Public Cloud Platform - Infra (IUO)",   "SaaS Budget": 8.5,  "SaaS Won": 0.0, "Gap": -8.5, "Attainment": 0.000, "Status": "Under" }
+      ],
+      "insight": "3 of 4 UT15s are underperforming on SaaS: Data Platform is furthest behind at just 32.2% attainment (-$5.7M gap). Public Cloud Platform - Infra (IUO) has no won pipeline recorded against an $8.5M budget. Automation Platform is closest to target at 57.4% but still carries the largest absolute gap at -$5.7M due to its $13.4M budget.",
+      "citation": "Source: Q1 2026 US Select Whitepaper, p. 3 ($31.62M SaaS budget total) · AskEPM illustrative drill-down by UT15 platform"
+    },
+    "win_rate_by_category": {
+      "page": 5,
+      "derived": true,
+      "title": "Win rate by select product category — 2026",
+      "subtitle": "Aggregate win rate 60.5% (whitepaper p.5), split across 4 product categories",
+      "kpis": [
+        { "label": "Focus win rate",       "value": "10.7%", "sub": "555 won · 4,625 lost" },
+        { "label": "Key Core win rate",    "value": "23.8%", "sub": "1,111 won · 3,562 lost" },
+        { "label": "Special Team win rate", "value": "94.9%", "sub": "9,275 won · 498 lost" },
+        { "label": "Unassigned win rate",  "value": "33.4%", "sub": "1,522 won · 3,031 lost" }
+      ],
+      "win_rate_bar": [
+        { "category": "Focus",        "pct": 10.7 },
+        { "category": "Key Core",     "pct": 23.8 },
+        { "category": "Special Team", "pct": 94.9 },
+        { "category": "Unassigned",   "pct": 33.4 }
+      ],
+      "won_lost_count": [
+        { "category": "Focus",        "series": "Won",  "value": 555 },
+        { "category": "Focus",        "series": "Lost", "value": 4625 },
+        { "category": "Key Core",     "series": "Won",  "value": 1111 },
+        { "category": "Key Core",     "series": "Lost", "value": 3562 },
+        { "category": "Special Team", "series": "Won",  "value": 9275 },
+        { "category": "Special Team", "series": "Lost", "value": 498 },
+        { "category": "Unassigned",   "series": "Won",  "value": 1522 },
+        { "category": "Unassigned",   "series": "Lost", "value": 3031 }
+      ],
+      "table": [
+        { "Category": "Focus",        "Won opps": 555,  "Lost opps": 4625, "Win rate": 0.107, "Won value": 43.2, "Lost value": 262.6, "Avg won deal": 77800 },
+        { "Category": "Key Core",     "Won opps": 1111, "Lost opps": 3562, "Win rate": 0.238, "Won value": 47.9, "Lost value": 301.3, "Avg won deal": 43100 },
+        { "Category": "Special Team", "Won opps": 9275, "Lost opps": 498,  "Win rate": 0.949, "Won value": 10.9, "Lost value": 10.7,  "Avg won deal": 1200 },
+        { "Category": "Unassigned",   "Won opps": 1522, "Lost opps": 3031, "Win rate": 0.334, "Won value": 35.1, "Lost value": 121.0, "Avg won deal": 23100 }
+      ],
+      "insight": "Focus has a critical win rate problem at 10.7% — nearly 9 in 10 opportunities are lost. Despite carrying the second-largest won value ($43.2M), 4,625 opportunities were lost worth $262.6M. Key Core at 23.8% is also below par. Special Team's 94.9% rate is exceptional but operates at a much smaller scale ($10.9M won value).",
+      "recommendation": "Recommendation: Prioritize a win/loss deep-dive on Focus — review qualification criteria, competitive positioning, and pricing. The low win rate combined with its large budget makes it the highest-leverage improvement opportunity across all categories.",
+      "citation": "Source: Q1 2026 US Select Whitepaper, p. 5 (60.5% aggregate win rate) · AskEPM illustrative drill-down by product category"
+    },
+    "ut15_and_regional_cq": {
+      "page": 3,
+      "derived": true,
+      "title": "Q1 2026 attainment — UT15 SaaS detail + regional CQ progress",
+      "subtitle": "Combined view: 23 tracked UT15s vs SaaS budget · CQ closed+commit by region",
+      "ut15_kpis": [
+        { "label": "UT15s tracked",     "value": "23",      "sub": "All US Select UT15s" },
+        { "label": "Below 80%",         "value": "6",       "sub": "Underperforming" },
+        { "label": "Unrealized SaaS",   "value": "$4.10M",  "sub": "Sub-set of $20.12M total gap" },
+        { "label": "Avg attainment",    "value": "68%",     "sub": "Across underperformers" }
+      ],
+      "ut15_table": [
+        { "UT15": "DE-Manufacturing-Auto",  "SaaS budget": 2400000, "Actual + commit": 1320000, "Attainment": 0.55, "Gap": -1080000, "Status": "Below 60%" },
+        { "UT15": "JP-Retail-CPG",           "SaaS budget": 1800000, "Actual + commit":  920000, "Attainment": 0.51, "Gap":  -880000, "Status": "Below 60%" },
+        { "UT15": "UK-Insurance-Life",       "SaaS budget": 1500000, "Actual + commit":  960000, "Attainment": 0.64, "Gap":  -540000, "Status": "Below 70%" },
+        { "UT15": "US-PublicSector-Federal", "SaaS budget": 1200000, "Actual + commit":  780000, "Attainment": 0.65, "Gap":  -420000, "Status": "Below 70%" },
+        { "UT15": "FR-Banking-Tier2",        "SaaS budget":  950000, "Actual + commit":  690000, "Attainment": 0.73, "Gap":  -260000, "Status": "Below 80%" },
+        { "UT15": "CA-Telecom-Wireless",     "SaaS budget":  800000, "Actual + commit":  600000, "Attainment": 0.75, "Gap":  -200000, "Status": "Below 80%" }
+      ],
+      "regional_cq_kpis": [
+        { "label": "Q1 budget",     "value": "$7.20M",  "sub": "Across 5 regions" },
+        { "label": "Closed+commit", "value": "$5.42M",  "sub": "75% attainment" },
+        { "label": "Attainment",    "value": "75%",     "sub": "vs $7.20M plan" },
+        { "label": "Gap to plan",   "value": "-$1.78M", "sub": "AMER East above; EMEA/APAC at risk" }
+      ],
+      "regional_progress": [
+        { "region": "AMER East",     "actual": 2.34, "target": 2.20, "pct": 106, "status": "Above" },
+        { "region": "AMER West",     "actual": 1.48, "target": 1.80, "pct": 82,  "status": "On track" },
+        { "region": "EMEA",          "actual": 0.86, "target": 1.50, "pct": 57,  "status": "At risk" },
+        { "region": "APAC",          "actual": 0.51, "target": 0.90, "pct": 57,  "status": "At risk" },
+        { "region": "Public sector", "actual": 0.23, "target": 0.80, "pct": 29,  "status": "At risk" }
+      ],
+      "insight": "6 of 23 UT15s are below 80% SaaS attainment, representing $4.10M of unrealized SaaS budget. DE-Manufacturing-Auto and JP-Retail-CPG are the largest gaps. Tracking to 75% of CQ revenue plan ($5.42M of $7.20M) — AMER East is above quota; EMEA, APAC, and public sector are at risk.",
+      "citation": "Source: Q1 2026 US Select Whitepaper, p. 3 (SaaS totals) + p.1-2 (KPI shape) · AskEPM illustrative drill-down by UT15 and region"
+    },
+    "call_pipeline_conversion": {
+      "page": 4,
+      "derived": true,
+      "title": "Portion of call pipeline won — Full year 2026",
+      "subtitle": "$248.8M total call pipeline, broken into won + remaining",
+      "kpis": [
+        { "label": "Total call pipeline",   "value": "$248.8M", "sub": "14,208 opportunities" },
+        { "label": "Won from call pipeline", "value": "$137.1M", "sub": "12,252 opps · 86.2% of opps" },
+        { "label": "Remaining to close",     "value": "$111.7M", "sub": "1,956 opps · 13.8% of opps" }
+      ],
+      "donut_count": [
+        { "label": "Won",       "value": 86.2 },
+        { "label": "Remaining", "value": 13.8 }
+      ],
+      "donut_value": [
+        { "label": "Won",       "value": 55.1 },
+        { "label": "Remaining", "value": 44.9 }
+      ],
+      "won_remaining_count": [
+        { "metric": "Won opps",       "value": 12252 },
+        { "metric": "Remaining opps", "value": 1956 }
+      ],
+      "won_remaining_value": [
+        { "metric": "Won value ($M)",       "value": 137.1 },
+        { "metric": "Remaining value ($M)", "value": 111.7 }
+      ],
+      "insight": "86.2% of call pipeline opportunities have been won (12,252 of 14,208), but by value only 55.1% has converted ($137.1M of $248.8M). The gap between opp count (86.2%) and value conversion (55.1%) indicates the remaining 1,956 opportunities skew significantly larger in deal size — averaging ~$57.1K vs $11.2K for already-won deals.",
+      "priority_callout": "The $111.7M in unconverted call pipeline is the priority. These ~1,956 larger deals represent disproportionate revenue potential. Focused pursuit on the highest-value stalled opportunities could meaningfully close the CQ attainment gap before quarter end.",
+      "citation": "Source: Q1 2026 US Select Whitepaper, p. 4 (Call Coverage $188.10M / 11,126 opps) · AskEPM full-year call-pipeline conversion drill-down"
+    }
+  }
+}

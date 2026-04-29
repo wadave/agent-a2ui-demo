@@ -1,0 +1,115 @@
+[
+  { "beginRendering": { "surfaceId": "wp-win-rate-by-category", "root": "root" }},
+  { "surfaceUpdate": { "surfaceId": "wp-win-rate-by-category", "components": [
+    { "id": "root", "component": { "Column": { "children": { "explicitList": [
+        "page-title","page-subtitle","kpi-row",
+        "winrate-section","wonlost-section",
+        "table-header","detail-grid",
+        "insight-card","recommendation-card","citation-text"
+    ]}, "alignment": "stretch" }}},
+    { "id": "page-title",    "component": { "Text": { "text": { "literalString": "Win rate by select product category — 2026" }, "usageHint": "h2" }}},
+    { "id": "page-subtitle", "component": { "Text": { "text": { "literalString": "Aggregate win rate 60.5% (whitepaper p.5), split across 4 product categories" }, "usageHint": "caption" }}},
+
+    { "id": "kpi-row", "component": { "Row": { "children": { "explicitList": ["kpi-1","kpi-2","kpi-3","kpi-4"] }, "distribution": "spaceBetween", "alignment": "start" }}},
+    { "id": "kpi-1",     "component": { "Card": { "child": "kpi-1-col" }}},
+    { "id": "kpi-1-col", "component": { "Column": { "children": { "explicitList": ["kpi-1-label","kpi-1-value","kpi-1-sub"] }, "alignment": "start" }}},
+    { "id": "kpi-1-label","component": { "Text": { "text": { "literalString": "Focus win rate" }, "usageHint": "caption" }}},
+    { "id": "kpi-1-value","component": { "Text": { "text": { "literalString": "10.7%" }, "usageHint": "h1" }}},
+    { "id": "kpi-1-sub",  "component": { "Text": { "text": { "literalString": "555 won · 4,625 lost" }, "usageHint": "caption" }}},
+    { "id": "kpi-2",     "component": { "Card": { "child": "kpi-2-col" }}},
+    { "id": "kpi-2-col", "component": { "Column": { "children": { "explicitList": ["kpi-2-label","kpi-2-value","kpi-2-sub"] }, "alignment": "start" }}},
+    { "id": "kpi-2-label","component": { "Text": { "text": { "literalString": "Key Core win rate" }, "usageHint": "caption" }}},
+    { "id": "kpi-2-value","component": { "Text": { "text": { "literalString": "23.8%" }, "usageHint": "h1" }}},
+    { "id": "kpi-2-sub",  "component": { "Text": { "text": { "literalString": "1,111 won · 3,562 lost" }, "usageHint": "caption" }}},
+    { "id": "kpi-3",     "component": { "Card": { "child": "kpi-3-col" }}},
+    { "id": "kpi-3-col", "component": { "Column": { "children": { "explicitList": ["kpi-3-label","kpi-3-value","kpi-3-sub"] }, "alignment": "start" }}},
+    { "id": "kpi-3-label","component": { "Text": { "text": { "literalString": "Special Team win rate" }, "usageHint": "caption" }}},
+    { "id": "kpi-3-value","component": { "Text": { "text": { "literalString": "94.9%" }, "usageHint": "h1" }}},
+    { "id": "kpi-3-sub",  "component": { "Text": { "text": { "literalString": "9,275 won · 498 lost" }, "usageHint": "caption" }}},
+    { "id": "kpi-4",     "component": { "Card": { "child": "kpi-4-col" }}},
+    { "id": "kpi-4-col", "component": { "Column": { "children": { "explicitList": ["kpi-4-label","kpi-4-value","kpi-4-sub"] }, "alignment": "start" }}},
+    { "id": "kpi-4-label","component": { "Text": { "text": { "literalString": "Unassigned win rate" }, "usageHint": "caption" }}},
+    { "id": "kpi-4-value","component": { "Text": { "text": { "literalString": "33.4%" }, "usageHint": "h1" }}},
+    { "id": "kpi-4-sub",  "component": { "Text": { "text": { "literalString": "1,522 won · 3,031 lost" }, "usageHint": "caption" }}},
+
+    { "id": "winrate-section", "component": { "Column": { "children": { "explicitList": ["winrate-header","winrate-bar"] }, "alignment": "stretch" }}},
+    { "id": "winrate-header",  "component": { "Text": { "text": { "literalString": "Win rate % by category (50% reference)" }, "usageHint": "h3" }}},
+    { "id": "winrate-bar",     "component": { "VegaChart": { "spec": {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      "data": { "values": [
+        { "category": "Focus",        "pct": 10.7 },
+        { "category": "Key Core",     "pct": 23.8 },
+        { "category": "Special Team", "pct": 94.9 },
+        { "category": "Unassigned",   "pct": 33.4 }
+      ]},
+      "layer": [
+        {
+          "mark": "bar",
+          "encoding": {
+            "x":     { "field": "category", "type": "nominal", "axis": { "labelAngle": 0 }, "title": null },
+            "y":     { "field": "pct", "type": "quantitative", "title": "Win rate %" },
+            "color": {
+              "field": "pct", "type": "quantitative",
+              "scale": { "domain": [0, 25, 50, 100], "range": ["#fa4d56","#f1c21b","#4589ff","#42be65"] },
+              "legend": null
+            }
+          }
+        },
+        {
+          "mark": { "type": "rule", "color": "#a8a8a8", "strokeDash": [3,2] },
+          "encoding": { "y": { "datum": 50 } }
+        }
+      ]
+    }}}},
+
+    { "id": "wonlost-section", "component": { "Column": { "children": { "explicitList": ["wonlost-header","wonlost-bar"] }, "alignment": "stretch" }}},
+    { "id": "wonlost-header",  "component": { "Text": { "text": { "literalString": "Won vs lost opportunity count by category" }, "usageHint": "h3" }}},
+    { "id": "wonlost-bar",     "component": { "VegaChart": { "spec": {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      "data": { "values": [
+        { "category": "Focus",        "series": "Won",  "value": 555 },
+        { "category": "Focus",        "series": "Lost", "value": 4625 },
+        { "category": "Key Core",     "series": "Won",  "value": 1111 },
+        { "category": "Key Core",     "series": "Lost", "value": 3562 },
+        { "category": "Special Team", "series": "Won",  "value": 9275 },
+        { "category": "Special Team", "series": "Lost", "value": 498 },
+        { "category": "Unassigned",   "series": "Won",  "value": 1522 },
+        { "category": "Unassigned",   "series": "Lost", "value": 3031 }
+      ]},
+      "mark": "bar",
+      "encoding": {
+        "x":     { "field": "category", "type": "nominal", "axis": { "labelAngle": 0 }, "title": null },
+        "y":     { "field": "value", "type": "quantitative", "title": "Opportunity count", "stack": "zero" },
+        "color": { "field": "series", "type": "nominal",
+                   "scale": { "domain": ["Won","Lost"], "range": ["#42be65","#fa4d56"] },
+                   "legend": { "orient": "top", "title": null }},
+        "order": { "field": "series", "sort": "descending" }
+      }
+    }}}},
+
+    { "id": "table-header","component": { "Text": { "text": { "literalString": "Full detail by category" }, "usageHint": "h3" }}},
+    { "id": "detail-grid", "component": { "DataGrid": {
+      "rowData": [
+        { "Category": "Focus",        "Won opps": 555,  "Lost opps": 4625, "Win rate": 0.107, "Won value": 43200000, "Lost value": 262600000, "Avg won deal": 77800 },
+        { "Category": "Key Core",     "Won opps": 1111, "Lost opps": 3562, "Win rate": 0.238, "Won value": 47900000, "Lost value": 301300000, "Avg won deal": 43100 },
+        { "Category": "Special Team", "Won opps": 9275, "Lost opps": 498,  "Win rate": 0.949, "Won value": 10900000, "Lost value":  10700000, "Avg won deal":  1200 },
+        { "Category": "Unassigned",   "Won opps": 1522, "Lost opps": 3031, "Win rate": 0.334, "Won value": 35100000, "Lost value": 121000000, "Avg won deal": 23100 }
+      ],
+      "schema": { "fields": [
+        { "name": "Category",     "type": "string",     "displayName": "Category" },
+        { "name": "Won opps",     "type": "integer",    "displayName": "Won opps" },
+        { "name": "Lost opps",    "type": "integer",    "displayName": "Lost opps" },
+        { "name": "Win rate",     "type": "percentage", "displayName": "Win rate" },
+        { "name": "Won value",    "type": "currency",   "displayName": "Won value" },
+        { "name": "Lost value",   "type": "currency",   "displayName": "Lost value" },
+        { "name": "Avg won deal", "type": "currency",   "displayName": "Avg won deal" }
+      ]}
+    }}},
+
+    { "id": "insight-card",       "component": { "Card": { "child": "insight-text" }}},
+    { "id": "insight-text",       "component": { "Text": { "text": { "literalString": "Insight: Focus has a critical win rate problem at 10.7% — nearly 9 in 10 opportunities are lost. Despite carrying the second-largest won value ($43.2M), 4,625 opportunities were lost worth $262.6M. Key Core at 23.8% is also below par. Special Team's 94.9% is exceptional but operates at a much smaller scale ($10.9M won value)." }, "usageHint": "body" }}},
+    { "id": "recommendation-card","component": { "Card": { "child": "recommendation-text" }}},
+    { "id": "recommendation-text","component": { "Text": { "text": { "literalString": "Recommendation: Prioritize a win/loss deep-dive on Focus — review qualification criteria, competitive positioning, and pricing. The low win rate combined with its large budget makes it the highest-leverage improvement opportunity across all categories." }, "usageHint": "body" }}},
+    { "id": "citation-text",      "component": { "Text": { "text": { "literalString": "Source: Q1 2026 US Select Whitepaper, p. 5 (60.5% aggregate win rate) · AskEPM illustrative drill-down by product category" }, "usageHint": "caption" }}}
+  ]}}
+]

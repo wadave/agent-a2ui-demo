@@ -55,7 +55,7 @@ from google.genai import types
 from app.config import DEFAULT_MODEL
 from app.session_keys import A2UI_CATALOG_KEY, A2UI_ENABLED_KEY, A2UI_EXAMPLES_KEY
 from app.sub_agents import get_search_agent
-from app.tools import find_restaurants, get_directions
+from app.tools import find_restaurants, get_directions, read_whitepaper_section
 from app.workspace_tools import (
     append_doc_text,
     append_sheet_data,
@@ -228,6 +228,31 @@ Your task is to analyze the user's request, fetch the necessary data, select the
   4. Always include a short plain-text intro alongside the chart tool call (e.g. `"Restaurants by rating:"`).
   5. Cap the chart at ~12 data points. If the source data has more, take the top 12 by `value` and add a `"+ N more"` aggregate row.
 
+
+- **AskIBM whitepaper dashboards (v0.8 only)**: When the user asks an AskIBM-style sales analytics question grounded in the Q1 2026 US Select Territory Sales Performance Whitepaper, do this:
+  1. Call `read_whitepaper_section(section=...)` with the matching key. Triggers and section keys:
+       - "What is CQ performance vs budget?" / "Show me transactional and SaaS attainment" → `cq_performance_vs_budget`
+       - "What pipelines did we lose last quarter and the primary loss reasons?" / "Lost pipeline by reason" → `lost_pipeline_by_reason`
+       - "Show me Q1 2026 pipeline coverage by product category" / "Coverage by Focus / Key Core" → `pipeline_coverage_by_category`
+       - "Show me UT15 underperformance on SaaS for Q1 2026" / "SaaS by platform" → `ut15_saas_underperformance`
+       - "Show me win rate analysis by product category for 2026" → `win_rate_by_category`
+       - "Which UT15s are underperforming against their SaaS budget?" / "CQ performance by region" → `ut15_and_regional_cq`
+       - "What portion of call pipeline has won?" / "Call pipeline conversion" → `call_pipeline_conversion`
+     The tool resolves common aliases ("lost pipeline", "ut15", "regional", "portion won", etc.) and returns `{ok, document, section, page, citation, data}`.
+  2. Pick the matching v0.8 example template (one per section):
+       - `cq_performance_vs_budget`         → `---BEGIN dashboard_cq_performance_vs_budget---`
+       - `lost_pipeline_by_reason`          → `---BEGIN dashboard_lost_pipeline_by_reason---`
+       - `pipeline_coverage_by_category`    → `---BEGIN dashboard_pipeline_coverage_by_category---`
+       - `ut15_saas_underperformance`       → `---BEGIN dashboard_ut15_saas_underperformance---`
+       - `win_rate_by_category`             → `---BEGIN dashboard_win_rate_by_category---`
+       - `ut15_and_regional_cq`             → `---BEGIN dashboard_ut15_and_regional_cq---`
+       - `call_pipeline_conversion`         → `---BEGIN dashboard_call_pipeline_conversion---`
+  3. Use the tool response numbers verbatim. Substitute every `Text` `literalString` (KPI labels, KPI values like `$25.79M`/`50.4%`, section headers, insight body) and every Vega `data.values` row from the corresponding sub-block in the tool's `data` field. Keep Vega `field` names (`category`, `series`, `value`, `pct`, `region`, etc.) unchanged.
+  4. **Always render the citation** in the trailing `citation-text` Text component, copied verbatim from `data.citation`. The citation distinguishes whitepaper-direct numbers ("Source: Whitepaper p.X") from derived drill-downs ("AskEPM illustrative drill-down"). Never drop or rewrite it.
+  5. For DataGrids, pass raw numeric values in `rowData` (e.g. `2400000`, `0.55`, `-1080000`) — `schema.fields[].type` of `currency` / `percentage` / `integer` drives the formatting. Do NOT pre-format to "$2.4M" or "55%".
+  6. Generate a fresh `surfaceId` per request (e.g. `wp-cq-performance-<unix-ts>`).
+  7. These dashboards are v0.8-only. If the active client is v0.9, fall back to a single `Chart` (donut for breakdowns, bar for ranked comparisons) plus a Text summary that includes the citation.
+  8. Always include a short plain-text intro alongside the tool call (e.g. `"Here's CQ performance vs budget from the Q1 2026 whitepaper:"`).
 
 - When the user asks for restaurant details, respond with **text only** in Markdown format. Do NOT call the A2UI tool.
 - For found restaurants (e.g. from buttons like 'Show on map'), use `send_a2ui_json_to_client` directly with the name and address you already have. Do NOT re-fetch the restaurant.
@@ -673,6 +698,32 @@ class RestaurantFinderAgent:
                         "How hot is it in Phoenix today?",
                     ],
                 ),
+                AgentSkill(
+                    id="askibm_whitepaper_dashboards",
+                    name="AskIBM Whitepaper Dashboards",
+                    description=(
+                        "Render AskIBM-style sales analytics dashboards "
+                        "grounded in the Q1 2026 US Select Territory Sales "
+                        "Performance Whitepaper. Seven dashboards: CQ "
+                        "performance vs budget, lost pipeline by reason, "
+                        "pipeline coverage by product category, UT15 SaaS "
+                        "underperformance, win rate by category, UT15 + "
+                        "regional CQ progress, and call pipeline conversion. "
+                        "Each surface combines KPI cards, Vega charts, and "
+                        "DataGrid tables with a 'Source: Whitepaper p.X' "
+                        "citation."
+                    ),
+                    tags=["analytics", "dashboard", "askibm", "whitepaper", "sales"],
+                    examples=[
+                        "What is CQ performance vs budget?",
+                        "What pipelines did we lose last quarter and what were the primary loss reasons?",
+                        "Show me Q1 2026 pipeline coverage by product category.",
+                        "Show me UT15 underperformance on SaaS for Q1 2026.",
+                        "Show me win rate analysis by product category for 2026.",
+                        "Which UT15s are underperforming against their SaaS budget?",
+                        "What portion of call pipeline has won?",
+                    ],
+                ),
             ],
         )
 
@@ -758,6 +809,7 @@ class RestaurantFinderAgent:
             tools=[
                 find_restaurants,
                 get_directions,
+                read_whitepaper_section,
                 SendA2uiToClientToolset(
                     a2ui_enabled=_get_a2ui_enabled,
                     a2ui_catalog=_get_a2ui_catalog,

@@ -1,0 +1,117 @@
+[
+  { "beginRendering": { "surfaceId": "wp-ut15-and-regional", "root": "root" }},
+  { "surfaceUpdate": { "surfaceId": "wp-ut15-and-regional", "components": [
+    { "id": "root", "component": { "Column": { "children": { "explicitList": [
+        "page-title","page-subtitle",
+        "ut15-section-header","ut15-insight-card","ut15-kpi-row","ut15-table-header","ut15-table-grid",
+        "regional-section-header","regional-kpi-row","regional-progress-header","regional-progress-chart",
+        "citation-text"
+    ]}, "alignment": "stretch" }}},
+    { "id": "page-title",    "component": { "Text": { "text": { "literalString": "Q1 2026 attainment — UT15 SaaS detail + regional CQ progress" }, "usageHint": "h2" }}},
+    { "id": "page-subtitle", "component": { "Text": { "text": { "literalString": "Combined view: 23 tracked UT15s vs SaaS budget · CQ closed+commit by region" }, "usageHint": "caption" }}},
+
+    { "id": "ut15-section-header","component": { "Text": { "text": { "literalString": "Which UT15s are underperforming against their SaaS budget?" }, "usageHint": "h3" }}},
+    { "id": "ut15-insight-card", "component": { "Card": { "child": "ut15-insight-text" }}},
+    { "id": "ut15-insight-text", "component": { "Text": { "text": { "literalString": "Insight — 6 of 23 UT15s are below 80% SaaS attainment, representing $4.10M of unrealized SaaS budget. DE-Manufacturing-Auto and JP-Retail-CPG are the largest gaps." }, "usageHint": "body" }}},
+
+    { "id": "ut15-kpi-row", "component": { "Row": { "children": { "explicitList": ["uk-1","uk-2","uk-3","uk-4"] }, "distribution": "spaceBetween", "alignment": "start" }}},
+    { "id": "uk-1",     "component": { "Card": { "child": "uk-1-col" }}},
+    { "id": "uk-1-col", "component": { "Column": { "children": { "explicitList": ["uk-1-label","uk-1-value"] }, "alignment": "start" }}},
+    { "id": "uk-1-label","component": { "Text": { "text": { "literalString": "UT15s tracked" }, "usageHint": "caption" }}},
+    { "id": "uk-1-value","component": { "Text": { "text": { "literalString": "23" }, "usageHint": "h1" }}},
+    { "id": "uk-2",     "component": { "Card": { "child": "uk-2-col" }}},
+    { "id": "uk-2-col", "component": { "Column": { "children": { "explicitList": ["uk-2-label","uk-2-value"] }, "alignment": "start" }}},
+    { "id": "uk-2-label","component": { "Text": { "text": { "literalString": "Below 80%" }, "usageHint": "caption" }}},
+    { "id": "uk-2-value","component": { "Text": { "text": { "literalString": "6" }, "usageHint": "h1" }}},
+    { "id": "uk-3",     "component": { "Card": { "child": "uk-3-col" }}},
+    { "id": "uk-3-col", "component": { "Column": { "children": { "explicitList": ["uk-3-label","uk-3-value"] }, "alignment": "start" }}},
+    { "id": "uk-3-label","component": { "Text": { "text": { "literalString": "Unrealized SaaS" }, "usageHint": "caption" }}},
+    { "id": "uk-3-value","component": { "Text": { "text": { "literalString": "$4.10M" }, "usageHint": "h1" }}},
+    { "id": "uk-4",     "component": { "Card": { "child": "uk-4-col" }}},
+    { "id": "uk-4-col", "component": { "Column": { "children": { "explicitList": ["uk-4-label","uk-4-value"] }, "alignment": "start" }}},
+    { "id": "uk-4-label","component": { "Text": { "text": { "literalString": "Avg attainment" }, "usageHint": "caption" }}},
+    { "id": "uk-4-value","component": { "Text": { "text": { "literalString": "68%" }, "usageHint": "h1" }}},
+
+    { "id": "ut15-table-header","component": { "Text": { "text": { "literalString": "Underperforming UT15s — sorted by gap" }, "usageHint": "h3" }}},
+    { "id": "ut15-table-grid",  "component": { "DataGrid": {
+      "rowData": [
+        { "UT15": "DE-Manufacturing-Auto",   "SaaS budget": 2400000, "Actual + commit": 1320000, "Attainment": 0.55, "Gap": -1080000, "Status": "Below 60%" },
+        { "UT15": "JP-Retail-CPG",            "SaaS budget": 1800000, "Actual + commit":  920000, "Attainment": 0.51, "Gap":  -880000, "Status": "Below 60%" },
+        { "UT15": "UK-Insurance-Life",        "SaaS budget": 1500000, "Actual + commit":  960000, "Attainment": 0.64, "Gap":  -540000, "Status": "Below 70%" },
+        { "UT15": "US-PublicSector-Federal",  "SaaS budget": 1200000, "Actual + commit":  780000, "Attainment": 0.65, "Gap":  -420000, "Status": "Below 70%" },
+        { "UT15": "FR-Banking-Tier2",         "SaaS budget":  950000, "Actual + commit":  690000, "Attainment": 0.73, "Gap":  -260000, "Status": "Below 80%" },
+        { "UT15": "CA-Telecom-Wireless",      "SaaS budget":  800000, "Actual + commit":  600000, "Attainment": 0.75, "Gap":  -200000, "Status": "Below 80%" }
+      ],
+      "schema": { "fields": [
+        { "name": "UT15",            "type": "string",     "displayName": "UT15" },
+        { "name": "SaaS budget",     "type": "currency",   "displayName": "SaaS budget" },
+        { "name": "Actual + commit", "type": "currency",   "displayName": "Actual + commit" },
+        { "name": "Attainment",      "type": "percentage", "displayName": "Attainment" },
+        { "name": "Gap",             "type": "currency",   "displayName": "Gap" },
+        { "name": "Status",          "type": "string",     "displayName": "Status" }
+      ]}
+    }}},
+
+    { "id": "regional-section-header","component": { "Text": { "text": { "literalString": "What is CQ performance vs budget by region?" }, "usageHint": "h3" }}},
+
+    { "id": "regional-kpi-row", "component": { "Row": { "children": { "explicitList": ["rk-1","rk-2","rk-3","rk-4"] }, "distribution": "spaceBetween", "alignment": "start" }}},
+    { "id": "rk-1",     "component": { "Card": { "child": "rk-1-col" }}},
+    { "id": "rk-1-col", "component": { "Column": { "children": { "explicitList": ["rk-1-label","rk-1-value"] }, "alignment": "start" }}},
+    { "id": "rk-1-label","component": { "Text": { "text": { "literalString": "Q1 budget" }, "usageHint": "caption" }}},
+    { "id": "rk-1-value","component": { "Text": { "text": { "literalString": "$7.20M" }, "usageHint": "h1" }}},
+    { "id": "rk-2",     "component": { "Card": { "child": "rk-2-col" }}},
+    { "id": "rk-2-col", "component": { "Column": { "children": { "explicitList": ["rk-2-label","rk-2-value"] }, "alignment": "start" }}},
+    { "id": "rk-2-label","component": { "Text": { "text": { "literalString": "Closed + commit" }, "usageHint": "caption" }}},
+    { "id": "rk-2-value","component": { "Text": { "text": { "literalString": "$5.42M" }, "usageHint": "h1" }}},
+    { "id": "rk-3",     "component": { "Card": { "child": "rk-3-col" }}},
+    { "id": "rk-3-col", "component": { "Column": { "children": { "explicitList": ["rk-3-label","rk-3-value"] }, "alignment": "start" }}},
+    { "id": "rk-3-label","component": { "Text": { "text": { "literalString": "Attainment" }, "usageHint": "caption" }}},
+    { "id": "rk-3-value","component": { "Text": { "text": { "literalString": "75%" }, "usageHint": "h1" }}},
+    { "id": "rk-4",     "component": { "Card": { "child": "rk-4-col" }}},
+    { "id": "rk-4-col", "component": { "Column": { "children": { "explicitList": ["rk-4-label","rk-4-value"] }, "alignment": "start" }}},
+    { "id": "rk-4-label","component": { "Text": { "text": { "literalString": "Gap to plan" }, "usageHint": "caption" }}},
+    { "id": "rk-4-value","component": { "Text": { "text": { "literalString": "-$1.78M" }, "usageHint": "h1" }}},
+
+    { "id": "regional-progress-header","component": { "Text": { "text": { "literalString": "Closed + commit vs budget by region ($M)" }, "usageHint": "h3" }}},
+    { "id": "regional-progress-chart","component": { "VegaChart": { "spec": {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      "data": { "values": [
+        { "region": "AMER East",     "actual": 2.34, "target": 2.20, "pct": 106 },
+        { "region": "AMER West",     "actual": 1.48, "target": 1.80, "pct": 82 },
+        { "region": "EMEA",          "actual": 0.86, "target": 1.50, "pct": 57 },
+        { "region": "APAC",          "actual": 0.51, "target": 0.90, "pct": 57 },
+        { "region": "Public sector", "actual": 0.23, "target": 0.80, "pct": 29 }
+      ]},
+      "layer": [
+        { "mark": { "type": "bar", "color": "#e0e0e0", "height": 14, "cornerRadius": 2 },
+          "encoding": {
+            "y": { "field": "region", "type": "nominal", "sort": null, "axis": { "labelLimit": 200 }, "title": null },
+            "x": { "field": "target", "type": "quantitative", "axis": { "title": "$M" }}
+          }},
+        { "mark": { "type": "bar", "height": 14, "cornerRadius": 2 },
+          "encoding": {
+            "y": { "field": "region", "type": "nominal", "sort": null, "title": null },
+            "x": { "field": "actual", "type": "quantitative", "title": "$M" },
+            "color": {
+              "field": "pct", "type": "quantitative",
+              "scale": { "domain": [0, 80, 100, 120], "range": ["#fa4d56","#fa4d56","#0f62fe","#42be65"] },
+              "legend": null
+            }
+          }},
+        { "mark": { "type": "rule", "color": "#161616", "strokeDash": [3,2], "strokeWidth": 1 },
+          "encoding": {
+            "y": { "field": "region", "type": "nominal", "sort": null },
+            "x": { "field": "target", "type": "quantitative" }
+          }},
+        { "mark": { "type": "text", "align": "left", "dx": 6, "fontWeight": "bold" },
+          "encoding": {
+            "y":    { "field": "region", "type": "nominal", "sort": null },
+            "x":    { "field": "target", "type": "quantitative" },
+            "text": { "field": "pct", "type": "quantitative", "format": ".0f" }
+          }}
+      ]
+    }}}},
+
+    { "id": "citation-text","component": { "Text": { "text": { "literalString": "Source: Q1 2026 US Select Whitepaper, p. 3 (SaaS totals) + p.1-2 (KPI shape) · AskEPM illustrative drill-down by UT15 and region" }, "usageHint": "caption" }}}
+  ]}}
+]
