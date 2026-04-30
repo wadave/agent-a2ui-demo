@@ -1,0 +1,461 @@
+[
+  {
+    "version": "v0.9",
+    "createSurface": {
+      "surfaceId": "wp-call-pipeline-conversion",
+      "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"
+    }
+  },
+  {
+    "version": "v0.9",
+    "updateComponents": {
+      "surfaceId": "wp-call-pipeline-conversion",
+      "components": [
+        {
+          "id": "root",
+          "component": "Canvas",
+          "children": [
+            "page-title",
+            "page-subtitle",
+            "kpi-row",
+            "donut-row",
+            "donut-count-section",
+            "donut-value-section",
+            "wonremain-count-section",
+            "wonremain-value-section",
+            "insight-card",
+            "priority-card",
+            "summary-text",
+            "citation-text"
+          ]
+        },
+        {
+          "id": "page-title",
+          "component": "Text",
+          "variant": "h2",
+          "text": "Portion of call pipeline won \u2014 Full year 2026"
+        },
+        {
+          "id": "page-subtitle",
+          "component": "Text",
+          "variant": "caption",
+          "text": "$248.8M total call pipeline \u00b7 breakdown of won vs remaining"
+        },
+        {
+          "id": "kpi-row",
+          "component": "Row",
+          "children": [
+            "kpi-1",
+            "kpi-2",
+            "kpi-3"
+          ],
+          "align": "start",
+          "justify": "spaceBetween"
+        },
+        {
+          "id": "kpi-1",
+          "component": "Card",
+          "child": "kpi-1-col"
+        },
+        {
+          "id": "kpi-1-col",
+          "component": "Column",
+          "children": [
+            "kpi-1-label",
+            "kpi-1-value",
+            "kpi-1-sub"
+          ],
+          "align": "start"
+        },
+        {
+          "id": "kpi-1-label",
+          "component": "Text",
+          "variant": "caption",
+          "text": "Total call pipeline"
+        },
+        {
+          "id": "kpi-1-value",
+          "component": "Text",
+          "variant": "h1",
+          "text": "$248.8M"
+        },
+        {
+          "id": "kpi-1-sub",
+          "component": "Text",
+          "variant": "caption",
+          "text": "14,208 opportunities"
+        },
+        {
+          "id": "kpi-2",
+          "component": "Card",
+          "child": "kpi-2-col"
+        },
+        {
+          "id": "kpi-2-col",
+          "component": "Column",
+          "children": [
+            "kpi-2-label",
+            "kpi-2-value",
+            "kpi-2-sub"
+          ],
+          "align": "start"
+        },
+        {
+          "id": "kpi-2-label",
+          "component": "Text",
+          "variant": "caption",
+          "text": "Won from call pipeline"
+        },
+        {
+          "id": "kpi-2-value",
+          "component": "Text",
+          "variant": "h1",
+          "text": "$137.1M"
+        },
+        {
+          "id": "kpi-2-sub",
+          "component": "Text",
+          "variant": "caption",
+          "text": "12,252 opps \u00b7 86.2% of opps"
+        },
+        {
+          "id": "kpi-3",
+          "component": "Card",
+          "child": "kpi-3-col"
+        },
+        {
+          "id": "kpi-3-col",
+          "component": "Column",
+          "children": [
+            "kpi-3-label",
+            "kpi-3-value",
+            "kpi-3-sub"
+          ],
+          "align": "start"
+        },
+        {
+          "id": "kpi-3-label",
+          "component": "Text",
+          "variant": "caption",
+          "text": "Remaining to close"
+        },
+        {
+          "id": "kpi-3-value",
+          "component": "Text",
+          "variant": "h1",
+          "text": "$111.7M"
+        },
+        {
+          "id": "kpi-3-sub",
+          "component": "Text",
+          "variant": "caption",
+          "text": "1,956 opps \u00b7 13.8% of opps"
+        },
+        {
+          "id": "donut-row",
+          "component": "Row",
+          "children": [
+            "donut-count-section",
+            "donut-value-section"
+          ],
+          "align": "stretch",
+          "justify": "spaceBetween"
+        },
+        {
+          "id": "donut-count-section",
+          "component": "Column",
+          "children": [
+            "donut-count-header",
+            "donut-count-chart"
+          ],
+          "align": "center"
+        },
+        {
+          "id": "donut-count-header",
+          "component": "Text",
+          "variant": "caption",
+          "text": "By opportunity count"
+        },
+        {
+          "id": "donut-count-chart",
+          "component": "VegaChart",
+          "spec": {
+            "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+            "data": {
+              "values": [
+                {
+                  "label": "Won",
+                  "value": 86.2
+                },
+                {
+                  "label": "Remaining",
+                  "value": 13.8
+                }
+              ]
+            },
+            "mark": {
+              "type": "arc",
+              "innerRadius": 55,
+              "outerRadius": 100
+            },
+            "encoding": {
+              "theta": {
+                "field": "value",
+                "type": "quantitative",
+                "stack": true
+              },
+              "color": {
+                "field": "label",
+                "type": "nominal",
+                "scale": {
+                  "domain": [
+                    "Won",
+                    "Remaining"
+                  ],
+                  "range": [
+                    "#42be65",
+                    "#a8a8a8"
+                  ]
+                },
+                "legend": {
+                  "orient": "bottom",
+                  "title": null
+                }
+              }
+            },
+            "view": {
+              "stroke": null
+            }
+          }
+        },
+        {
+          "id": "donut-value-section",
+          "component": "Column",
+          "children": [
+            "donut-value-header",
+            "donut-value-chart"
+          ],
+          "align": "center"
+        },
+        {
+          "id": "donut-value-header",
+          "component": "Text",
+          "variant": "caption",
+          "text": "By pipeline value"
+        },
+        {
+          "id": "donut-value-chart",
+          "component": "VegaChart",
+          "spec": {
+            "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+            "data": {
+              "values": [
+                {
+                  "label": "Won",
+                  "value": 55.1
+                },
+                {
+                  "label": "Remaining",
+                  "value": 44.9
+                }
+              ]
+            },
+            "mark": {
+              "type": "arc",
+              "innerRadius": 55,
+              "outerRadius": 100
+            },
+            "encoding": {
+              "theta": {
+                "field": "value",
+                "type": "quantitative",
+                "stack": true
+              },
+              "color": {
+                "field": "label",
+                "type": "nominal",
+                "scale": {
+                  "domain": [
+                    "Won",
+                    "Remaining"
+                  ],
+                  "range": [
+                    "#42be65",
+                    "#a8a8a8"
+                  ]
+                },
+                "legend": {
+                  "orient": "bottom",
+                  "title": null
+                }
+              }
+            },
+            "view": {
+              "stroke": null
+            }
+          }
+        },
+        {
+          "id": "wonremain-count-section",
+          "component": "Column",
+          "children": [
+            "wonremain-count-header",
+            "wonremain-count-chart"
+          ],
+          "align": "stretch"
+        },
+        {
+          "id": "wonremain-count-header",
+          "component": "Text",
+          "variant": "h3",
+          "text": "Won vs remaining \u2014 opportunity count"
+        },
+        {
+          "id": "wonremain-count-chart",
+          "component": "VegaChart",
+          "spec": {
+            "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+            "data": {
+              "values": [
+                {
+                  "metric": "Won opps",
+                  "value": 12252
+                },
+                {
+                  "metric": "Remaining opps",
+                  "value": 1956
+                }
+              ]
+            },
+            "mark": "bar",
+            "encoding": {
+              "y": {
+                "field": "metric",
+                "type": "nominal",
+                "sort": null,
+                "title": null
+              },
+              "x": {
+                "field": "value",
+                "type": "quantitative",
+                "title": "Opportunity count"
+              },
+              "color": {
+                "field": "metric",
+                "type": "nominal",
+                "scale": {
+                  "domain": [
+                    "Won opps",
+                    "Remaining opps"
+                  ],
+                  "range": [
+                    "#42be65",
+                    "#a8a8a8"
+                  ]
+                },
+                "legend": null
+              }
+            }
+          }
+        },
+        {
+          "id": "wonremain-value-section",
+          "component": "Column",
+          "children": [
+            "wonremain-value-header",
+            "wonremain-value-chart"
+          ],
+          "align": "stretch"
+        },
+        {
+          "id": "wonremain-value-header",
+          "component": "Text",
+          "variant": "h3",
+          "text": "Won vs remaining \u2014 pipeline value ($M)"
+        },
+        {
+          "id": "wonremain-value-chart",
+          "component": "VegaChart",
+          "spec": {
+            "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+            "data": {
+              "values": [
+                {
+                  "metric": "Won value ($M)",
+                  "value": 137.1
+                },
+                {
+                  "metric": "Remaining value ($M)",
+                  "value": 111.7
+                }
+              ]
+            },
+            "mark": "bar",
+            "encoding": {
+              "y": {
+                "field": "metric",
+                "type": "nominal",
+                "sort": null,
+                "title": null
+              },
+              "x": {
+                "field": "value",
+                "type": "quantitative",
+                "title": "$M"
+              },
+              "color": {
+                "field": "metric",
+                "type": "nominal",
+                "scale": {
+                  "domain": [
+                    "Won value ($M)",
+                    "Remaining value ($M)"
+                  ],
+                  "range": [
+                    "#42be65",
+                    "#a8a8a8"
+                  ]
+                },
+                "legend": null
+              }
+            }
+          }
+        },
+        {
+          "id": "insight-card",
+          "component": "Card",
+          "child": "insight-text"
+        },
+        {
+          "id": "insight-text",
+          "component": "Text",
+          "variant": "body",
+          "text": "86.2% of call pipeline opportunities have been won (12,252 of 14,208), but by value only 55.1% has converted ($137.1M of $248.8M). The gap between opp count (86.2%) and value conversion (55.1%) indicates the remaining 1,956 opportunities skew significantly larger in deal size \u2014 averaging ~$57.1K vs $11.2K for already-won deals."
+        },
+        {
+          "id": "priority-card",
+          "component": "Card",
+          "child": "priority-text"
+        },
+        {
+          "id": "priority-text",
+          "component": "Text",
+          "variant": "body",
+          "text": "Priority: The $111.7M in unconverted call pipeline is the focus. These ~1,956 larger deals represent disproportionate revenue potential. Focused pursuit on the highest-value stalled opportunities could meaningfully close the CQ attainment gap before quarter end."
+        },
+        {
+          "id": "summary-text",
+          "component": "Text",
+          "variant": "body",
+          "text": "By opportunity count \u2014 strong: 86.2% of call pipeline opps have been won (12,252 of 14,208). Only 1,956 remain open. By value \u2014 more opportunity remains: only 55.1% of call pipeline value has converted ($137.1M of $248.8M), leaving $111.7M still to close."
+        },
+        {
+          "id": "citation-text",
+          "component": "Text",
+          "variant": "caption",
+          "text": "Source: Q1 2026 US Select Whitepaper, p. 4 (Call Coverage $188.10M / 11,126 opps) \u00b7 AskEPM full-year call-pipeline conversion drill-down"
+        }
+      ]
+    }
+  }
+]

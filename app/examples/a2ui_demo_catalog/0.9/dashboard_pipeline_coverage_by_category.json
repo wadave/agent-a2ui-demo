@@ -1,0 +1,492 @@
+[
+  {
+    "version": "v0.9",
+    "createSurface": {
+      "surfaceId": "wp-pipeline-coverage",
+      "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"
+    }
+  },
+  {
+    "version": "v0.9",
+    "updateComponents": {
+      "surfaceId": "wp-pipeline-coverage",
+      "components": [
+        {
+          "id": "root",
+          "component": "Canvas",
+          "children": [
+            "page-title",
+            "page-subtitle",
+            "kpi-row",
+            "grouped-section",
+            "callcov-section",
+            "table-header",
+            "detail-grid",
+            "insight-card",
+            "citation-text"
+          ]
+        },
+        {
+          "id": "page-title",
+          "component": "Text",
+          "variant": "h2",
+          "text": "Q1 2026 pipeline coverage by select product category"
+        },
+        {
+          "id": "page-subtitle",
+          "component": "Text",
+          "variant": "caption",
+          "text": "Qualify+ pipeline ($264.10M total) split across 4 product categories"
+        },
+        {
+          "id": "kpi-row",
+          "component": "Row",
+          "children": [
+            "kpi-1",
+            "kpi-2",
+            "kpi-3",
+            "kpi-4"
+          ],
+          "align": "start",
+          "justify": "spaceBetween"
+        },
+        {
+          "id": "kpi-1",
+          "component": "Card",
+          "child": "kpi-1-col"
+        },
+        {
+          "id": "kpi-1-col",
+          "component": "Column",
+          "children": [
+            "kpi-1-label",
+            "kpi-1-value",
+            "kpi-1-sub"
+          ],
+          "align": "start"
+        },
+        {
+          "id": "kpi-1-label",
+          "component": "Text",
+          "variant": "caption",
+          "text": "Focus \u2014 qualify+ coverage"
+        },
+        {
+          "id": "kpi-1-value",
+          "component": "Text",
+          "variant": "h1",
+          "text": "338.8%"
+        },
+        {
+          "id": "kpi-1-sub",
+          "component": "Text",
+          "variant": "caption",
+          "text": "Call: 84.5% \u00b7 $93.0M pipeline"
+        },
+        {
+          "id": "kpi-2",
+          "component": "Card",
+          "child": "kpi-2-col"
+        },
+        {
+          "id": "kpi-2-col",
+          "component": "Column",
+          "children": [
+            "kpi-2-label",
+            "kpi-2-value",
+            "kpi-2-sub"
+          ],
+          "align": "start"
+        },
+        {
+          "id": "kpi-2-label",
+          "component": "Text",
+          "variant": "caption",
+          "text": "Key Core \u2014 qualify+ coverage"
+        },
+        {
+          "id": "kpi-2-value",
+          "component": "Text",
+          "variant": "h1",
+          "text": "198.8%"
+        },
+        {
+          "id": "kpi-2-sub",
+          "component": "Text",
+          "variant": "caption",
+          "text": "Call: 56.3% \u00b7 $133.0M pipeline"
+        },
+        {
+          "id": "kpi-3",
+          "component": "Card",
+          "child": "kpi-3-col"
+        },
+        {
+          "id": "kpi-3-col",
+          "component": "Column",
+          "children": [
+            "kpi-3-label",
+            "kpi-3-value",
+            "kpi-3-sub"
+          ],
+          "align": "start"
+        },
+        {
+          "id": "kpi-3-label",
+          "component": "Text",
+          "variant": "caption",
+          "text": "Special Team (Key Core)"
+        },
+        {
+          "id": "kpi-3-value",
+          "component": "Text",
+          "variant": "h1",
+          "text": "1,376%"
+        },
+        {
+          "id": "kpi-3-sub",
+          "component": "Text",
+          "variant": "caption",
+          "text": "Call: 616.7% \u00b7 $2.1M pipeline"
+        },
+        {
+          "id": "kpi-4",
+          "component": "Card",
+          "child": "kpi-4-col"
+        },
+        {
+          "id": "kpi-4-col",
+          "component": "Column",
+          "children": [
+            "kpi-4-label",
+            "kpi-4-value",
+            "kpi-4-sub"
+          ],
+          "align": "start"
+        },
+        {
+          "id": "kpi-4-label",
+          "component": "Text",
+          "variant": "caption",
+          "text": "Unassigned \u2014 qualify+ coverage"
+        },
+        {
+          "id": "kpi-4-value",
+          "component": "Text",
+          "variant": "h1",
+          "text": "187.6%"
+        },
+        {
+          "id": "kpi-4-sub",
+          "component": "Text",
+          "variant": "caption",
+          "text": "Call: 61.9% \u00b7 $36.0M pipeline"
+        },
+        {
+          "id": "grouped-section",
+          "component": "Column",
+          "children": [
+            "grouped-header",
+            "grouped-bar"
+          ],
+          "align": "stretch"
+        },
+        {
+          "id": "grouped-header",
+          "component": "Text",
+          "variant": "h3",
+          "text": "Qualify+ pipeline vs combined budget (Transactional + SaaS)"
+        },
+        {
+          "id": "grouped-bar",
+          "component": "VegaChart",
+          "spec": {
+            "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+            "data": {
+              "values": [
+                {
+                  "category": "Focus",
+                  "series": "Combined budget",
+                  "value": 27.4
+                },
+                {
+                  "category": "Focus",
+                  "series": "Qualify+ pipeline",
+                  "value": 92.95
+                },
+                {
+                  "category": "Key Core",
+                  "series": "Combined budget",
+                  "value": 66.9
+                },
+                {
+                  "category": "Key Core",
+                  "series": "Qualify+ pipeline",
+                  "value": 132.97
+                },
+                {
+                  "category": "Special Team",
+                  "series": "Combined budget",
+                  "value": 0.15
+                },
+                {
+                  "category": "Special Team",
+                  "series": "Qualify+ pipeline",
+                  "value": 2.06
+                },
+                {
+                  "category": "Unassigned",
+                  "series": "Combined budget",
+                  "value": 19.18
+                },
+                {
+                  "category": "Unassigned",
+                  "series": "Qualify+ pipeline",
+                  "value": 36.12
+                }
+              ]
+            },
+            "mark": "bar",
+            "encoding": {
+              "x": {
+                "field": "category",
+                "type": "nominal",
+                "axis": {
+                  "labelAngle": 0
+                },
+                "title": null
+              },
+              "y": {
+                "field": "value",
+                "type": "quantitative",
+                "title": "$M"
+              },
+              "xOffset": {
+                "field": "series",
+                "type": "nominal"
+              },
+              "color": {
+                "field": "series",
+                "type": "nominal",
+                "scale": {
+                  "domain": [
+                    "Combined budget",
+                    "Qualify+ pipeline"
+                  ],
+                  "range": [
+                    "#0f62fe",
+                    "#42be65"
+                  ]
+                },
+                "legend": {
+                  "orient": "top",
+                  "title": null
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "callcov-section",
+          "component": "Column",
+          "children": [
+            "callcov-header",
+            "callcov-bar"
+          ],
+          "align": "stretch"
+        },
+        {
+          "id": "callcov-header",
+          "component": "Text",
+          "variant": "h3",
+          "text": "Call-stage coverage % by category (100% threshold)"
+        },
+        {
+          "id": "callcov-bar",
+          "component": "VegaChart",
+          "spec": {
+            "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+            "data": {
+              "values": [
+                {
+                  "category": "Focus",
+                  "pct": 84.5
+                },
+                {
+                  "category": "Key Core",
+                  "pct": 56.3
+                },
+                {
+                  "category": "Special Team",
+                  "pct": 616.7
+                },
+                {
+                  "category": "Unassigned",
+                  "pct": 61.9
+                }
+              ]
+            },
+            "layer": [
+              {
+                "mark": "bar",
+                "encoding": {
+                  "x": {
+                    "field": "category",
+                    "type": "nominal",
+                    "axis": {
+                      "labelAngle": 0
+                    },
+                    "title": null
+                  },
+                  "y": {
+                    "field": "pct",
+                    "type": "quantitative",
+                    "title": "Call coverage %"
+                  },
+                  "color": {
+                    "field": "pct",
+                    "type": "quantitative",
+                    "scale": {
+                      "domain": [
+                        0,
+                        80,
+                        100,
+                        200
+                      ],
+                      "range": [
+                        "#fa4d56",
+                        "#fa4d56",
+                        "#f1c21b",
+                        "#42be65"
+                      ]
+                    },
+                    "legend": null
+                  }
+                }
+              },
+              {
+                "mark": {
+                  "type": "rule",
+                  "color": "#fa4d56",
+                  "strokeDash": [
+                    3,
+                    2
+                  ]
+                },
+                "encoding": {
+                  "y": {
+                    "datum": 100
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "table-header",
+          "component": "Text",
+          "variant": "h3",
+          "text": "Coverage detail by category"
+        },
+        {
+          "id": "detail-grid",
+          "component": "DataGrid",
+          "rowData": [
+            {
+              "Category": "Focus",
+              "Trans Budget": 11000000,
+              "SaaS Budget": 15100000,
+              "Q+ Pipeline": 92950000,
+              "Q+ Coverage": 3.388,
+              "Call Pipeline": 23160000,
+              "Call Coverage": 0.845
+            },
+            {
+              "Category": "Key Core",
+              "Trans Budget": 26800000,
+              "SaaS Budget": 5700000,
+              "Q+ Pipeline": 132970000,
+              "Q+ Coverage": 1.988,
+              "Call Pipeline": 37680000,
+              "Call Coverage": 0.563
+            },
+            {
+              "Category": "Special Team",
+              "Trans Budget": 200000,
+              "SaaS Budget": 1100000,
+              "Q+ Pipeline": 2060000,
+              "Q+ Coverage": 13.76,
+              "Call Pipeline": 930000,
+              "Call Coverage": 6.167
+            },
+            {
+              "Category": "Unassigned",
+              "Trans Budget": 13200000,
+              "SaaS Budget": 9800000,
+              "Q+ Pipeline": 36120000,
+              "Q+ Coverage": 1.876,
+              "Call Pipeline": 14240000,
+              "Call Coverage": 0.619
+            }
+          ],
+          "schema": {
+            "fields": [
+              {
+                "name": "Category",
+                "type": "string",
+                "displayName": "Category"
+              },
+              {
+                "name": "Trans Budget",
+                "type": "currency",
+                "displayName": "Trans. Budget"
+              },
+              {
+                "name": "SaaS Budget",
+                "type": "currency",
+                "displayName": "SaaS Budget"
+              },
+              {
+                "name": "Q+ Pipeline",
+                "type": "currency",
+                "displayName": "Q+ Pipeline"
+              },
+              {
+                "name": "Q+ Coverage",
+                "type": "percentage",
+                "displayName": "Q+ Coverage"
+              },
+              {
+                "name": "Call Pipeline",
+                "type": "currency",
+                "displayName": "Call Pipeline"
+              },
+              {
+                "name": "Call Coverage",
+                "type": "percentage",
+                "displayName": "Call Coverage"
+              }
+            ]
+          }
+        },
+        {
+          "id": "insight-card",
+          "component": "Card",
+          "child": "insight-text"
+        },
+        {
+          "id": "insight-text",
+          "component": "Text",
+          "variant": "body",
+          "text": "Insight: Qualify+ coverage exceeds 100% across all 4 categories \u2014 pipeline foundation is broadly healthy. Call coverage is weakest in Key Core (56.3%) and Unassigned (61.9%); Special Team's 616.7% reflects very small call-stage budget rather than true overperformance."
+        },
+        {
+          "id": "citation-text",
+          "component": "Text",
+          "variant": "caption",
+          "text": "Source: Q1 2026 US Select Whitepaper, p. 4 (totals) \u00b7 AskEPM illustrative drill-down by product category"
+        }
+      ]
+    }
+  }
+]
