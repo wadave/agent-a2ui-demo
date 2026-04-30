@@ -22,7 +22,6 @@ Usage:
   AGENT_URL=https://my-agent.run.app uv run pytest tests/integration/remote_e2e_test.py -v
 """
 
-import json
 import logging
 import os
 import subprocess
@@ -127,29 +126,27 @@ class TestAgentCard:
             f"No A2UI extension found. Extensions: {a2ui_uris}"
         )
 
-    def test_agent_card_has_restaurant_skill(self, auth_headers):
+    def test_agent_card_has_dashboard_skill(self, auth_headers):
         card = requests.get(AGENT_CARD_URL, headers=auth_headers, timeout=10).json()
         skill_ids = [s["id"] for s in card.get("skills", [])]
-        assert "restaurant_lookup" in skill_ids
+        assert "askibm_whitepaper_dashboards" in skill_ids
 
 
 # ---------------------------------------------------------------------------
-# Text-only responses (no A2UI extension requested)
+# Text-only responses
 # ---------------------------------------------------------------------------
 
 
 class TestTextOnly:
-    def test_detail_query_returns_text(self, auth_headers):
-        data = _send("Tell me about Han Dynasty in NYC", auth_headers)
-        assert "result" in data, f"Unexpected response: {json.dumps(data)[:500]}"
+    def test_simple_query_returns_text(self, auth_headers):
+        data = _send("Tell me about the Q1 2026 whitepaper", auth_headers)
+        assert "result" in data
         assert data["result"]["status"]["state"] in ("completed", "input_required")
-
-        # Should have artifacts with text
         artifacts = data["result"].get("artifacts", [])
-        assert artifacts, "Expected at least one artifact"
+        assert artifacts
         parts = artifacts[0].get("parts", [])
         text_parts = [p for p in parts if p.get("kind") == "text"]
-        assert text_parts, "Expected text in response"
+        assert text_parts
 
 
 # ---------------------------------------------------------------------------
@@ -158,23 +155,18 @@ class TestTextOnly:
 
 
 class TestA2UI:
-    def test_restaurant_list_returns_a2ui(self, auth_headers):
-        """Restaurant list query should return A2UI components."""
+    def test_whitepaper_dashboard_returns_a2ui(self, auth_headers):
+        """Whitepaper dashboard query should return A2UI components."""
         data = _send(
-            "Find 2 restaurants near Times Square NYC",
+            "What is CQ performance vs budget?",
             auth_headers,
             extensions=[A2UI_EXTENSION],
         )
-        assert "result" in data, f"Unexpected response: {json.dumps(data)[:500]}"
+        assert "result" in data
+        assert data["result"]["status"]["state"] in ("completed", "input_required")
 
-        status = data["result"].get("status", {})
-        assert status.get("state") in ("completed", "input_required"), (
-            f"Unexpected state: {status}"
-        )
-
-        # Collect all parts from artifacts
         artifacts = data["result"].get("artifacts", [])
-        assert artifacts, "Expected at least one artifact"
+        assert artifacts
 
         all_parts = []
         for a in artifacts:
@@ -187,49 +179,6 @@ class TestA2UI:
             and p.get("metadata", {}).get("mimeType") == "application/json+a2ui"
         ]
         assert a2ui_parts, "Expected A2UI data parts in response"
-
-    def test_a2ui_has_create_surface(self, auth_headers):
-        data = _send(
-            "Find 3 restaurants near Google PLV office LA",
-            auth_headers,
-            extensions=[A2UI_EXTENSION],
-        )
-        artifacts = data["result"].get("artifacts", [])
-        all_parts = []
-        for a in artifacts:
-            all_parts.extend(a.get("parts", []))
-
-        a2ui_data = [
-            p["data"]
-            for p in all_parts
-            if p.get("kind") == "data"
-            and p.get("metadata", {}).get("mimeType") == "application/json+a2ui"
-        ]
-
-        has_create = any("createSurface" in d for d in a2ui_data)
-        has_components = any("updateComponents" in d for d in a2ui_data)
-        has_data_model = any("updateDataModel" in d for d in a2ui_data)
-
-        assert has_create, (
-            f"Missing createSurface. Got: {[list(d.keys()) for d in a2ui_data]}"
-        )
-        assert has_components, "Missing updateComponents"
-        assert has_data_model, "Missing updateDataModel"
-
-    def test_detail_query_no_a2ui(self, auth_headers):
-        """Detail queries should return text only, even with A2UI extension."""
-        data = _send(
-            "Tell me about Han Dynasty",
-            auth_headers,
-            extensions=[A2UI_EXTENSION],
-        )
-        artifacts = data["result"].get("artifacts", [])
-        all_parts = []
-        for a in artifacts:
-            all_parts.extend(a.get("parts", []))
-
-        text_parts = [p for p in all_parts if p.get("kind") == "text"]
-        assert text_parts, "Expected text response for detail query"
 
 
 # ---------------------------------------------------------------------------

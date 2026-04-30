@@ -17,7 +17,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from app.agent import RestaurantFinderAgent
+from app.agent import A2uiDemoAgent
 
 
 def test_agent_stream() -> None:
@@ -30,7 +30,7 @@ def test_agent_stream() -> None:
 
     session = session_service.create_session_sync(user_id="test_user", app_name="test")
     # instantiate the agent container class
-    agent_app = RestaurantFinderAgent(base_url="http://localhost:8000")
+    agent_app = A2uiDemoAgent(base_url="http://localhost:8000")
     # override the agent's internal runner with our own test setup if we want
     runner = Runner(
         agent=agent_app._build_llm_agent(),

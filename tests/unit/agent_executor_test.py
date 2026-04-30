@@ -20,7 +20,7 @@ from a2ui.a2a.parts import create_a2ui_part
 from app.agent_executor import _process_a2ui_parts, _repair_catalog_id
 
 VALID_CATALOG_ID = "https://a2ui.org/specification/v0_9/basic_catalog.json"
-HALLUCINATED_CATALOG_ID = "a2ui_restaurant_finder:v0_9"
+HALLUCINATED_CATALOG_ID = "a2ui_dashboard_agent:v0_9"
 
 
 def test_repair_leaves_correct_catalog_id_unchanged():

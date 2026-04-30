@@ -37,7 +37,7 @@ from google.adk.events.event import Event
 from google.adk.events.event_actions import EventActions
 from google.adk.runners import Runner
 
-from app.agent import RestaurantFinderAgent
+from app.agent import A2uiDemoAgent
 from app.config import A2UI_EXTENSION_URI_V0_8, get_google_maps_api_key
 from app.session_keys import A2UI_CATALOG_KEY, A2UI_ENABLED_KEY, A2UI_EXAMPLES_KEY
 
@@ -197,10 +197,10 @@ class _MapsKeyEventConverter(A2uiEventConverter):
         return a2a_events
 
 
-class RestaurantFinderExecutor(A2aAgentExecutor):
-    """Executor for the Restaurant Finder agent with A2UI GE session setup."""
+class A2uiDemoExecutor(A2aAgentExecutor):
+    """Executor for the A2UI Demo agent with A2UI GE session setup."""
 
-    def __init__(self, base_url: str, agent: RestaurantFinderAgent):
+    def __init__(self, base_url: str, agent: A2uiDemoAgent):
         self._base_url = base_url
         self._agent = agent
 

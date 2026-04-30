@@ -4,22 +4,21 @@ Audience: Developers building agents on Google Cloud.
 
 If you've built a chatbot, you know this conversation:
 
-> **User:** "Book a table for two tomorrow at 7pm."
-> **Agent:** "Okay, for what day?"
-> **User:** "Tomorrow."
-> **Agent:** "What time?"
+> **User:** "What was our lost pipeline last quarter?"
+> **Agent:** "We lost $483.46M."
+> **User:** "What were the reasons?"
+> **Agent:** "IBM did not pursue accounted for $226.26M, Customer did not pursue was $157.61M..."
 
-A date picker would have ended this in one tap. But until recently, agents had no standard way to render a date picker — or a map, or a multi-select list — inside the chat surface they live in. They could only return text.
+A chart or a data grid would have ended this in one glance. But until recently, agents had no standard way to render a chart — or a map, or a multi-select list — inside the chat surface they live in. They could only return text.
 
-Today, we're walking through how to fix that with **A2UI**, an open protocol for agent-driven user interfaces, and how to integrate an A2UI-enabled agent with **Gemini Enterprise** so your agent renders rich UI natively in the GE chat surface — and in your own custom frontend if you want one. We'll use a working restaurant-finder agent — built with the Google Agent Development Kit (ADK), the A2A protocol, and Gemini — as the reference. The full source is on [GitHub](https://github.com/wadave/agent-a2ui-demo) and there's a [3-minute demo video](https://youtu.be/_5AaYwyqVio).
+Today, we're walking through how to fix that with **A2UI**, an open protocol for agent-driven user interfaces, and how to integrate an A2UI-enabled agent with **Gemini Enterprise** so your agent renders rich UI natively in the GE chat surface — and in your own custom frontend if you want one. We'll use a working dashboard agent — built with the Google Agent Development Kit (ADK), the A2A protocol, and Gemini — as the reference. The full source is on [GitHub](https://github.com/wadave/agent-a2ui-demo).
 
 ## The problem: agents speak text, but users want UI
 
 Most agent frameworks today return strings. That's fine for short answers, but it breaks down quickly:
 
-- **Multi-turn slot filling** (date, time, party size) burns turns and patience.
-- **Choices among options** (which restaurant? which insurance plan?) become long bulleted lists the user has to copy-paste back.
-- **Spatial information** (locations, routes, floor plans) is reduced to addresses.
+- **Choices among options** become long bulleted lists the user has to copy-paste back.
+- **Complex data** (sales metrics, forecasts, tables) is reduced to text summaries.
 
 Developers have tried to patch this by sending HTML or JavaScript fragments, but that introduces real risks: cross-site scripting, UI injection from a remote agent you don't fully control, and visual drift from the host app's design system. What's needed is a way to transmit UI that's **safe like data and expressive like code**.
 
@@ -83,7 +82,7 @@ Gemini Enterprise ships with a built-in A2UI renderer. For the developer, that m
 At runtime, the flow looks like this:
 
 1. The user types a request in the GE chat. GE calls your agent's A2A endpoint and sends along **GE's own A2UI catalog** — the list of UI components GE knows how to render.
-2. Your agent decides whether a UI widget is the right response. If yes, it emits an A2UI JSON message (e.g., a `ChoicePicker` of restaurant options). If no, it falls back to text. Both can coexist in the same response.
+2. Your agent decides whether a UI widget is the right response. If yes, it emits an A2UI JSON message (e.g., a `VegaChart` of sales data). If no, it falls back to text. Both can coexist in the same response.
 3. GE receives the JSON, validates it against its catalog, and renders the widget natively in **GE's own design language** — so it visually matches the rest of the chat surface.
 4. When the user interacts with the widget (selects three options, picks a date), GE serializes the interaction back into JSON and sends it to your agent as the next turn. Your agent processes structured input, not free-form text.
 
@@ -102,7 +101,7 @@ graph TB
     subgraph CloudRun["Cloud Run"]
         BE["ADK Backend"]
         Agent["Gemini Agent"]
-        Tools["find_restaurants<br/>get_directions<br/>search_agent<br/>workspace_tools"]
+        Tools["read_whitepaper_section"]
 
         BE --> Agent
         Agent -->|"Tool calls"| Tools
@@ -110,24 +109,20 @@ graph TB
     end
 
     BE -->|"Text + A2UI Blueprints"| FE
-    Tools -->|"Grounding"| GCP["Google Cloud<br/>(Gemini<br/>+ Maps APIs)"]
-    Tools -->|"API Calls"| GWS["Google<br/>Workspace<br/>(Drive,<br/>Sheets,<br/>Slides)"]
-    FE -->|"Maps Embed<br/> iframe"| GCP
-    FE -->|"Drive Preview <br/>iframe"| GWS
+    Tools -->|"Data"| Data["Q1 2026 Whitepaper JSON"]
 
     style User fill:#e8f5e9
     style FE fill:#e3f2fd
     style BE fill:#fff3e0
     style Agent fill:#fce4ec
     style Tools fill:#fce4ec
-    style GCP fill:#f3e5f5
-    style GWS fill:#e8f5e9
+    style Data fill:#f3e5f5
     style CloudRun stroke-dasharray:5 5,fill:#fafafa
 ```
 
 - Gemini Enterprise connects directly to your agent using standard A2A JSON-RPC calls.
 - The agent serves the inline message pattern expected by the Gemini Enterprise managed UI.
-- Custom components like `GoogleMap` render via Google Maps Embed iframes, with the API key injected server-side so the LLM never sees it.
+- Custom components like `VegaChart` and `DataGrid` are used to render dashboards.
 
 ## Implementation guide
 
@@ -166,7 +161,7 @@ flowchart LR
 
 ### A2UI request lifecycle
 
-End-to-end, here's what happens for a single user request — say, *"Find Mexican restaurants in Downtown LA"*:
+End-to-end, here's what happens for a single user request — say, *"What is CQ performance vs budget?"*:
 
 ```mermaid
 flowchart TD
@@ -180,7 +175,7 @@ flowchart TD
 
         B["Handshake<br/>agent_executor.py<br/>Detect X-A2A-Extensions<br/>→ Load catalog & examples"] -->|enabled| C
 
-        C["Execute<br/>tools.py → find_restaurants()"] --> D
+        C["Execute<br/>tools.py → read_whitepaper_section()"] --> D
 
         D["Validate & Send<br/>Schema Manager<br/>Build components<br/>→ Validate → DataPart"] -->|"A2UI JSON<br/>DataParts"| R
 
@@ -196,9 +191,9 @@ flowchart TD
 ```
 
 1. **Header detection** — the executor reads the client's `X-A2A-Extensions` header (when present) to pick the matching A2UI message pattern, falling back to GE's expected default if the header is absent.
-2. **Schema Manager** — loads the matching catalog (`restaurant_finder_catalog_definition.json`) and example templates (`restaurant_selection.json`) into session state.
-3. **Tool Execution** — the LLM calls `find_restaurants("Mexican restaurants Downtown LA")`.
-4. **Validate & Send** — the agent assembles the layout (`Column` > `List` > `Card`), the Schema Manager validates the structure, and the result ships as A2A `DataPart` objects.
+2. **Schema Manager** — loads the matching catalog (`restaurant_finder_catalog_definition.json`) and example templates into session state.
+3. **Tool Execution** — the LLM calls `read_whitepaper_section("cq_performance_vs_budget")`.
+4. **Validate & Send** — the agent assembles the layout, the Schema Manager validates the structure, and the result ships as A2A `DataPart` objects.
 
 ### Detailed steps
 
@@ -233,17 +228,11 @@ You only declare components specific to your domain. The bundled `BasicCatalog` 
 
 #### Step 2. Create examples
 
-Drop one JSON file per UI pattern (e.g., `list.json`, `detail.json`) into an `examples/` directory. Each file is an array of A2UI messages showing a complete render — typically a `createSurface` to open the surface, an `updateComponents` to define the tree, and an `updateDataModel` to populate it:
-
-```text
-createSurface → updateComponents → updateDataModel
-```
-
-These get injected into the agent's system prompt automatically — they're how the LLM learns what idiomatic A2UI output looks like for *your* catalog. The schema validates structure; examples demonstrate intent. **Bad examples produce bad LLM output**, so spend time getting these right.
+Drop one JSON file per UI pattern into an `examples/` directory. These get injected into the agent's system prompt automatically — they're how the LLM learns what idiomatic A2UI output looks like for *your* catalog. The schema validates structure; examples demonstrate intent.
 
 #### Step 3. Register the catalog in the schema manager
 
-Pin the schema manager to whichever A2UI revision your client speaks (e.g., the one bundled with the SDK release you're using). Keep this version string in one place — config — so swapping in a new revision later is a one-line change:
+Pin the schema manager to whichever A2UI revision your client speaks.
 
 ```python
 from a2ui.schema.manager import A2uiSchemaManager
@@ -269,8 +258,6 @@ schema_manager = A2uiSchemaManager(
 )
 ```
 
-> **Gotcha — the catalog must be self-contained for validation.** Decoupled-pattern revisions validate components against `catalog.json#/$defs/anyComponent`. When the schema manager picks a catalog at startup (without client capabilities to narrow things down), it returns the first supported catalog *standalone* — the bundled `BasicCatalog` is **not** auto-merged. So if your custom catalog only declares your own components and your examples reference `Text`/`Column`, validation will fail with `'/$defs/anyComponent' does not exist`. The reference repo solves this with a small custom provider that loads the bundled `basic_catalog.json` and injects the custom components into both `components` and `$defs.anyComponent.oneOf` before returning. The result: one self-sufficient catalog that knows about every component the agent can emit. See `_MergedBasicCatalogProvider` in `app/agent.py`.
-
 #### Step 4. Generate the system prompt
 
 ```python
@@ -279,16 +266,14 @@ instruction = schema_manager.generate_system_prompt(
     workflow_description="1. Analyze the request...",
     ui_description="Use Card for detail views...",
     include_schema=False,
-    include_examples=False,  # examples loaded dynamically via session
+    include_examples=False,
     validate_examples=False,
 )
 ```
 
-We deliberately load examples through session state at request time rather than baking them into the static system prompt. That lets the same agent serve different catalogs (and different A2UI message patterns) without rebuilding the prompt.
-
 #### Step 5. Attach the toolset to your agent
 
-The agent gets one extra tool — `send_a2ui_json_to_client` — alongside its normal domain tools. The lambdas read from session state, which the executor populates during the handshake:
+The agent gets one extra tool — `send_a2ui_json_to_client` — alongside its normal domain tools.
 
 ```python
 from a2ui.adk.send_a2ui_to_client_toolset import SendA2uiToClientToolset
@@ -311,46 +296,11 @@ LlmAgent(
 
 This is where per-request setup happens. When a request arrives, your A2A executor needs to do four things before handing control to the agent:
 
-1. **Detect** which A2UI message pattern the client supports by inspecting its `X-A2A-Extensions` header.
-2. **Fall back** to a sensible default when the header is missing — Gemini Enterprise, for instance, doesn't send one and expects the inline pattern.
-3. **Select** the matching catalog and load its examples, optionally narrowing the catalog further based on any client capabilities advertised in the request.
-4. **Persist** the result into session state so the toolset lambdas from Step 5 can find the catalog and examples on every subsequent turn.
-
-The reference repo wires this up in the executor's `_prepare_session()` using helpers from the A2UI Python SDK (`try_activate_a2ui_extension`, `schema_manager.get_selected_catalog`, `schema_manager.load_examples`) and writes the result into ADK session state via an `EventActions(state_delta=...)`. The full snippet is in `app/agent_executor.py` of the [reference implementation](https://github.com/wadave/agent-a2ui-demo) — copy it as-is for ADK projects, or replicate the same four steps in whatever agent runtime you're using.
+1. **Detect** which A2UI message pattern the client supports.
+2. **Fall back** to a sensible default when the header is missing.
+3. **Select** the matching catalog and load its examples.
+4. **Persist** the result into session state.
 
 #### Step 7. Standalone testing and custom frontends (optional)
 
-Gemini Enterprise handles drawing components automatically using its built-in renderer, so for the GE-only path you can stop here. If you do want to test outside GE — or ship a custom product UI — build your own renderer by pairing each component's schema (its API contract) with a UI element that draws it. The shape, in pseudo-code:
-
-```typescript
-// 1. Declare the schema for each custom component.
-const WebFrameUrlSchema = z.object({ url: z.string().or(pathRef) });
-
-// 2. Implement the component (Lit / React / Flutter / native).
-class WebFrameUrlElement extends A2uiElement<WebFrameUrlSchema> { /* … */ }
-
-// 3. Build a catalog that mirrors what the backend emits — basic + custom.
-const customCatalog = new Catalog(CATALOG_ID, [
-  ...basicCatalog.components,
-  WebFrameUrl,
-  GoogleMap,
-]);
-
-// 4. Hand the catalog(s) to the A2UI message processor.
-new MessageProcessor([basicCatalog, customCatalog], actionHandler);
-```
-
-> **Frontend mirror of the backend merge.** Because the backend stamps the merged catalog with the *custom* `catalogId`, the frontend `customCatalog` must also include the basic components. Otherwise `createSurface` resolves to a catalog that only knows the custom components, and basic components like `Text`/`Column` render as `nothing`.
-
-That's the whole loop. The agent is ready to serve interactive components natively inside Gemini Enterprise — and inside any custom shell you build later.
-
-
-## See it running, then build your own
-
-- **Demo video** (3 minutes, end-to-end with both the Lit shell and Gemini Enterprise): [https://youtu.be/_5AaYwyqVio](https://youtu.be/_5AaYwyqVio)
-- **Reference implementation** (ADK + A2A + A2UI, Cloud Run-deployable): [github.com/wadave/agent-a2ui-demo](https://github.com/wadave/agent-a2ui-demo)
-- **A2UI spec and component reference**: [a2ui.org](https://a2ui.org/)
-- **Gemini Enterprise updates**, including the A2UI renderer: [What's new in Gemini Enterprise](https://cloud.google.com/blog/products/ai-machine-learning/whats-new-in-gemini-enterprise)
-- **A2UI generative UI announcement**: [Introducing A2UI generative UI](https://developers.googleblog.com/a2ui-v0-9-generative-ui/)
-
-If you're already building agents on Google Cloud, the fastest path is to clone the reference repo, run `make local-backend` for a local smoke test, and then `make register-gemini-enterprise` to wire it into GE. From there, swap in your own catalog, your own tools, and your own domain. The next time a user asks your agent for "a table for two tomorrow at 7pm," the answer can be a date picker instead of another question.
+Gemini Enterprise handles drawing components automatically using its built-in renderer. If you do want to test outside GE — or ship a custom product UI — build your own renderer by pairing each component's schema with a UI element that draws it.

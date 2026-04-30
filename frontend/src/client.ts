@@ -1,5 +1,5 @@
 /**
- * A2A client for communicating with the restaurant finder agent.
+ * A2A client for communicating with the dashboard agent.
  * Uses raw fetch. Frontend is served from the same origin as the backend.
  */
 
@@ -9,7 +9,7 @@ export interface A2UIMessage {
   [key: string]: unknown;
 }
 
-export class RestaurantA2UIClient {
+export class A2UIClient {
   #rpcEndpoint: string | null = null;
   #requestId = 0;
   // A2A `contextId` groups related messages into a single conversation

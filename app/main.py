@@ -26,15 +26,15 @@ from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from app.agent import RestaurantFinderAgent
-from app.agent_executor import RestaurantFinderExecutor
+from app.agent import A2uiDemoAgent
+from app.agent_executor import A2uiDemoExecutor
 from app.config import AGENT_URL, get_google_maps_api_key
 
 # 1. Create the Agent, AgentCard, RequestHandler, and App.
-agent = RestaurantFinderAgent(base_url=AGENT_URL)
+agent = A2uiDemoAgent(base_url=AGENT_URL)
 agent_card = agent.agent_card
 
-executor = RestaurantFinderExecutor(base_url=AGENT_URL, agent=agent)
+executor = A2uiDemoExecutor(base_url=AGENT_URL, agent=agent)
 
 request_handler = DefaultRequestHandler(
     agent_executor=executor,

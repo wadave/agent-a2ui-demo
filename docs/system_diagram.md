@@ -9,7 +9,7 @@ graph TB
     subgraph CloudRun["Cloud Run"]
         BE["ADK Backend"]
         Agent["Gemini Agent"]
-        Tools["find_restaurants<br/>get_directions<br/>search_agent<br/>workspace_tools"]
+        Tools["read_whitepaper_section"]
 
         BE --> Agent
         Agent -->|"Tool calls"| Tools
@@ -17,17 +17,13 @@ graph TB
     end
 
     BE -->|"Text + A2UI Blueprints"| FE
-    Tools -->|"Grounding"| GCP["Google Cloud<br/>(Gemini<br/>+ Maps APIs)"]
-    Tools -->|"API Calls"| GWS["Google<br/>Workspace<br/>(Drive,<br/>Sheets,<br/>Slides)"]
-    FE -->|"Maps Embed<br/> iframe"| GCP
-    FE -->|"Drive Preview <br/>iframe"| GWS
+    Tools -->|"Fixture"| Data["Q1 2026 Whitepaper JSON"]
 
     style User fill:#e8f5e9
     style FE fill:#e3f2fd
     style BE fill:#fff3e0
     style Agent fill:#fce4ec
     style Tools fill:#fce4ec
-    style GCP fill:#f3e5f5
-    style GWS fill:#e8f5e9
+    style Data fill:#f3e5f5
     style CloudRun stroke-dasharray:5 5,fill:#fafafa
 ```

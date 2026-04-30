@@ -14,7 +14,6 @@
 
 """Restaurant Finder agent using A2UI SDK for GE UI integration."""
 
-import json
 import logging
 import os
 from typing import ClassVar
@@ -48,41 +47,21 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.adk.skills import load_skill_from_dir
-from google.adk.tools.skill_toolset import SkillToolset
 from google.genai import types
 
 from app.config import DEFAULT_MODEL
 from app.session_keys import A2UI_CATALOG_KEY, A2UI_ENABLED_KEY, A2UI_EXAMPLES_KEY
 from app.sub_agents import get_search_agent
-from app.tools import find_restaurants, get_directions, read_whitepaper_section
-from app.workspace_tools import (
-    append_doc_text,
-    append_sheet_data,
-    apply_presentation_replacements_data,
-    create_doc,
-    create_sheet,
-    extract_presentation_inventory,
-    gws_call,
-    read_doc,
-    read_drive_file,
-    read_local_file,
-    read_presentation,
-    read_sheet,
-    rearrange_presentation_slides,
-    share_anyone_with_link,
-    share_doc,
-    upload_presentation,
-)
+from app.tools import read_whitepaper_section
 
 logger = logging.getLogger(__name__)
 
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CATALOG_DEFINITION_JSON = os.path.join(
-    _APP_DIR, "catalog_schemas", "0.9", "restaurant_finder_catalog_definition.json"
+    _APP_DIR, "catalog_schemas", "0.9", "a2ui_demo_catalog_definition.json"
 )
 CATALOG_DEFINITION_JSON_V0_8 = os.path.join(
-    _APP_DIR, "catalog_schemas", "0.8", "restaurant_finder_catalog_definition.json"
+    _APP_DIR, "catalog_schemas", "0.8", "a2ui_demo_catalog_definition.json"
 )
 
 
@@ -125,7 +104,7 @@ class _MergedBasicCatalogProvider(A2uiCatalogProvider):
 
 
 ROLE_DESCRIPTION = """
-You are a restaurant finder agent. Your goal is to help users find and explore restaurants by using the available tools.
+You are a sales analytics dashboard agent. Your goal is to help users visualize IBM data using VegaChart and DataGrid components based on the Q1 2026 whitepaper.
 If the `send_a2ui_json_to_client` tool is available to you, you MUST use it with the `a2ui_json` argument to send A2UI JSON payloads to the client for rendering rich UI. If it is NOT in your available tools list, respond with helpful plain text instead.
 
 **CRITICAL — when using `send_a2ui_json_to_client`, YOU MUST FOLLOW THESE RULES OR THE SYSTEM WILL BREAK:**
@@ -143,7 +122,7 @@ If the `send_a2ui_json_to_client` tool is available to you, you MUST use it with
 6. The whole `a2ui_json` argument is a JSON ARRAY of A2UI messages as shown in the catalog examples. Never merge multiple message types into one object.
 7. **Exactly ONE top-level JSON value.** The string starts with `[`, ends with the matching `]`, and contains nothing else — no trailing object, no second array, no markdown fence, no narration. To send N messages, put them as N elements inside the SAME array (`[msg1, msg2, msg3]`). Do NOT concatenate multiple arrays (`[msg1][msg2]` is broken — the parser fails with `Extra data: ...` and the UI never renders).
 8. **One tool call per response.** If the user's request needs multiple A2UI messages (e.g. createSurface + dataModelUpdate), put them all in the single `a2ui_json` array of one `send_a2ui_json_to_client` call — do NOT make two back-to-back calls and do NOT emit a second JSON value as a workaround.
-9. **Always emit a short plain-text intro alongside the tool call**, e.g. "Here are 5 restaurants near Google Playa Vista:" or "Showing the map for Urban Plates:". The text and the tool call are part of the same response. The text serves as a graceful fallback for clients that cannot render rich A2UI; do NOT skip it.
+9. **Always emit a short plain-text intro alongside the tool call**, e.g. "Here's CQ performance vs budget from the Q1 2026 whitepaper:". The text and the tool call are part of the same response. The text serves as a graceful fallback for clients that cannot render rich A2UI; do NOT skip it.
 10. **NEVER** use the component named 'Chart' for Gemini Enterprise UI (v0.8). It is unsupported. You MUST use the 'VegaChart' component with a `literalObject` Vega-Lite specification for all data visualizations.
 """
 
@@ -151,359 +130,83 @@ WORKFLOW_DESCRIPTION = """
 Your task is to analyze the user's request, fetch the necessary data, select the correct template, and send the A2UI JSON payload.
 
 1.  **Analyze the Request:** Determine the user's intent.
-    * "What restaurants are near me?" -> **Intent:** Restaurant List.
-    * "Show it on the map" -> **Intent:** Map View.
-    * "How do I get there?" -> **Intent:** Directions.
-    * "Tell me about Han Dynasty" -> **Intent:** Restaurant Details (text only).
-    * "What's the weather in Playa Vista?" / "Will it rain tomorrow?" -> **Intent:** Weather / live web lookup. Delegate to the `search_agent` sub-agent (it has Google Search grounding) and return its findings as plain text with source attribution. Do NOT call `send_a2ui_json_to_client` for weather responses, UNLESS the user explicitly asks to chart, graph, or visualize the data, OR provides a forecast table with numeric highs/lows and asks you to plot/chart/display it — in those cases you MUST use the `VegaChart` component (for v0.8) and follow the **A2UI Chart for Data** rule below using the `---BEGIN weather_forecast_chart---` template.
-
+    * "What is CQ performance vs budget?" -> **Intent:** AskIBM Dashboard.
+    * "Show me win rate analysis" -> **Intent:** AskIBM Dashboard.
+    * "Chart this data" -> **Intent:** Ad-hoc Charting.
 
 2.  **Fetch Data:** Select and use the appropriate tool.
-    * Use **`find_restaurants`** for searching restaurants by query. Always pass the complete location context.
-    * Use **`get_directions`** for driving directions between two locations.
-    * For **Map View**: you do NOT need to call any tool. Use the restaurant's name and address from the conversation context to build the `WebFrameUrl` URL directly.
-    * **Quality Check**: After calling `find_restaurants`, inspect the JSON output. Every restaurant MUST have a valid rating (stars) and a non-empty description. If any restaurant only has an address, do NOT display it. Instead, call `find_restaurants` again to find alternative restaurants that have complete details.
+    * Use **`read_whitepaper_section`** for fetching sales data from the whitepaper.
 
 3.  **Select Example:** Based on the intent, choose the correct example.
-    * **Restaurant List** -> Use `---BEGIN RESTAURANT_SELECTION EXAMPLE---`. (Never use the Map example for lists).
-    * **Map View** -> Use `---BEGIN MAP EXAMPLE---`. You MUST use the `send_a2ui_json_to_client` tool. Never respond with just plain text for map requests.
-    * **Directions** -> Use `---BEGIN DIRECTIONS EXAMPLE---`.
-    * **Restaurant Details** -> Respond with text only (no A2UI JSON).
+    * Use the appropriate `---BEGIN dashboard_*---` template for AskIBM dashboards.
+    * Use `---BEGIN chart---`, `---BEGIN pie_chart---`, or `---BEGIN multi_series_bar---` for ad-hoc charting.
 
 4.  **Construct the JSON Payload:**
-    * Use the chosen example as the base value for the `a2ui_json` argument. Follow the example format exactly — message type names, component structure, and field names must match the example.
+    * Use the chosen example as the base value for the `a2ui_json` argument. Follow the example format exactly.
     * **Generate a new `surfaceId`** for each request.
     * **Update the title** and data to reflect the actual query and tool results.
-    * For restaurant lists: populate each restaurant's fields with data from `find_restaurants`, following the format shown in the example exactly.
-    * For maps and directions: use the `WebFrameUrl` component with the backend maps proxy URL. The URL must be a `literalString` and must NOT include any API key — the backend adds it automatically.
-    * **CRITICAL — `catalogId`**: Copy the `catalogId` value **verbatim** from the example. Never substitute the agent name, a short string, or any other invented value. Do NOT add `theme`, `styles`, or any field not present in the example.
-    * If you get an error in the tool response, apologize and ask the user to try again.
-
-5.  **Call the Tool:** Call `send_a2ui_json_to_client` with the fully constructed `a2ui_json` payload. The `a2ui_json` argument MUST be a single compact JSON string with NO newlines and NO indentation. Use native function calling — do NOT write code.
-
+    * **CRITICAL — `catalogId`**: Copy the `catalogId` value **verbatim** from the example.
 
 **IMPORTANT RULES:**
-- **Presentation Generation (template-based, MANDATORY for new decks)**: When the user asks to create a presentation, slide deck, or slides, you MUST use the `presentation-skill` workflow — never `gws_call`, never the Slides API directly. Steps:
-  1. Call `load_skill(skill_name="presentation-skill")` first.
-  2. **Source the content from this conversation.** The harness automatically inlines any prior `find_restaurants` results into a `[SYSTEM REMINDER] === Restaurant data from this conversation ===` block when it sees a presentation request — use that data verbatim, one body slide per restaurant. If no system reminder appears AND no other source is referenced (a file path, a Drive ID, an open scratch doc), then and only then ask the user what to cover.
-  3. **Plan the outline.** Bundled 5-slide template indices: `0`=cover, `1`=TOC (5 entry-title placeholders), `2`=section divider, `3`=body content page (title + body — the workhorse), `4`=closing. Every deck starts at `0`, ends at `4`, includes at least one body slide. For N restaurants use `[0, 1] + [3]*N + [4]`. Empty placeholders in the inventory are real shapes that MUST be filled.
-  4. Workflow: `rearrange_presentation_slides` → `extract_presentation_inventory` → `read_local_file` (the inventory) → `apply_presentation_replacements_data` → `upload_presentation`.
-  5. **NEVER** use `gws_call(service="slides", method="create", ...)` to create a deck — that bypasses the template.
-  6. After apply, read `data.log`. If `J shape(s) left untouched > 0`, go back and add replacement entries for the missing shapes before uploading.
-  7. Only call `upload_presentation` once `data.log` reports `0 shape(s) left untouched`.
-
-
-
-- **A2UI Drive Preview after creating workspace artifacts**: After `upload_presentation`, `create_doc`, or `create_sheet` returns successfully (`{"ok": True, "data": {"file_id": "...", "url": "..."}}`), do these THREE steps before answering:
-  1. Call `share_anyone_with_link(file_id="<file_id>")` so the preview iframe loads for the user (the file is owned by the agent's service account; without this the iframe shows a "request access" page).
-  2. Call `send_a2ui_json_to_client` using the `---BEGIN drive_preview---` template.
-     - In **v0.8** (Gemini Enterprise), substitute BOTH placeholders in every `literalString` URL: `FILE_ID_HERE` → the file ID, and `DOCS_PATH_HERE` → the docs.google.com path segment for the file type:
-         - Google Slides (incl. converted .pptx from `upload_presentation`) → `presentation`
-         - Google Docs → `document`
-         - Google Sheets → `spreadsheets`
-       The reason: GE UI's iframe allowlist permits `docs.google.com` but NOT `drive.google.com`, so the file-type-specific docs URL is what actually renders. `upload_presentation` now converts to native Slides at upload time precisely so this URL pattern works.
-     - In **v0.9** (local Lit shell), set `previewUrl` and `openLink` inside `updateDataModel.value` using the existing `drive.google.com/file/d/<id>/preview` form — the local shell has no allowlist and the generic Drive viewer is fine there.
-     - Set `title` to the file name and `subtitle` to one of `"Google Slides — saved in <Folder>"` / `"Google Docs — saved in <Folder>"` / `"Google Sheets — saved in <Folder>"`. Use folder name `Drive root` if no folder was specified.
-  3. Emit a short plain-text confirmation alongside the tool call (e.g. `"Saved as 'restaurants0' in Documents:"`) — never tool-call only, never text-only.
-
-  Read-only workspace operations (`read_doc`, `read_sheet`, `read_presentation`, `read_drive_file`) normally respond with text only — EXCEPT when the user asks for a chart/graph (see next rule).
 
 - **A2UI Chart for Data**: When the user asks to chart, graph, plot, or visualize data (whether from a Google Sheet or provided directly in the prompt) — phrasing like "show this as a chart", "graph the ratings", "plot revenue by month" — do this. The `VegaChart` component is used for v0.8 (Gemini Enterprise) and the `Chart` component for v0.9 (local shell).
-  1. Resolve the data. If the data is provided directly in the prompt, use it. If the sheet was just created/appended this turn, the agent already has the rows in context. Otherwise call `read_sheet(spreadsheet_id, range)` to fetch them. If a column is referenced ("by rating"), pick the right pair of columns: one for `label`, one numeric for `value`.
+  1. Resolve the data. If the data is provided directly in the prompt, use it.
   2. Decide chart type from the user's intent and pick the matching v0.8 template:
-       - Categorical share of a whole (e.g. `Restaurants by Cuisine`) → **pie/doughnut** → `---BEGIN pie_chart---` (default is pie; for a doughnut, set `mark.innerRadius` to a positive number such as 60).
-       - Two metrics per category (e.g. High vs Low temps, Revenue vs Cost per quarter) → **grouped multi-series bar** → `---BEGIN multi_series_bar---`.
-       - Date-labeled single-series forecast/temperature (e.g. `Forecast High Temperatures`) → `---BEGIN weather_forecast_chart---`.
-       - Any other ranked single-series comparison (top-N, by-score) → `---BEGIN chart---`.
-       - If none fits cleanly (line, scatter, area, free-form time series), fall through to the **Sheets-embedded fallback** (3b) instead.
+       - Categorical share of a whole -> **pie/doughnut** -> `---BEGIN pie_chart---`.
+       - Two metrics per category -> **grouped multi-series bar** -> `---BEGIN multi_series_bar---`.
+       - Date-labeled single-series forecast/temperature -> `---BEGIN weather_forecast_chart---`.
+       - Any other ranked single-series comparison (top-N, by-score) -> `---BEGIN chart---`.
   3a. Call `send_a2ui_json_to_client` using the chosen template. Substitute:
-      - **For v0.8 (Gemini Enterprise)**: Use the `VegaChart` component shown in the example. Replace the `spec.data.values` array with the real data using the field names the chosen template references — single-series templates use `{"label": "Name", "value": 4.5}`; `multi_series_bar` additionally needs `"series": "..."` on each row (one row per `(category, series)` pair). **Keep these field names exactly** (`label`, `value`, `series`) — do NOT rename them to `date`/`temp`/`metric`, the example's encoding references them by name. Update the `Text` component's `literalString` with the title and update axis/encoding `title` fields to match the data unit (e.g. `"Temperature (°F)"`, `"Rating"`, `"Cuisine"`).
-
-      - **For v0.9 (local shell)**: Use the `Chart` component. Update `chart.title` and `chart.items[N]` keys (`label` valueString, `value` valueNumber) with one entry per row.
-      - Generate a fresh `surfaceId` per request (e.g. `sheet-chart-<unix-ts>`).
-
-
-
-  3b. **Fallback for unsupported chart types** (line, scatter, area, time series): instead of `Chart`, call `gws_call(service="sheets", resource="spreadsheets", method="batchUpdate", json_body=...)` with an `addChart` request to add a real Google Sheets chart to the sheet, then send the `---BEGIN drive_preview---` surface pointed at the sheet — the embedded Sheets viewer renders the chart natively. After this, also call `share_anyone_with_link(file_id)` if not already shared.
-  4. Always include a short plain-text intro alongside the chart tool call (e.g. `"Restaurants by rating:"`).
+      - **For v0.8 (Gemini Enterprise)**: Use the `VegaChart` component shown in the example. Replace the `spec.data.values` array with the real data using the field names the chosen template references — single-series templates use `{"label": "Name", "value": 4.5}`; `multi_series_bar` additionally needs `"series": "..."` on each row. Keep these field names exactly (`label`, `value`, `series`).
+      - **For v0.9 (local shell)**: Use the `Chart` component. Update `chart.title` and `chart.items[N]` keys (`label` valueString, `value` valueNumber).
+      - Generate a fresh `surfaceId` per request.
+  4. Always include a short plain-text intro alongside the chart tool call.
   5. Cap the chart at ~12 data points. If the source data has more, take the top 12 by `value` and add a `"+ N more"` aggregate row.
-
 
 - **AskIBM whitepaper dashboards (v0.8 only)**: When the user asks an AskIBM-style sales analytics question grounded in the Q1 2026 US Select Territory Sales Performance Whitepaper, do this:
   1. Call `read_whitepaper_section(section=...)` with the matching key. Triggers and section keys:
-       - "What is CQ performance vs budget?" / "Show me transactional and SaaS attainment" → `cq_performance_vs_budget`
-       - "What pipelines did we lose last quarter and the primary loss reasons?" / "Lost pipeline by reason" → `lost_pipeline_by_reason`
-       - "Show me Q1 2026 pipeline coverage by product category" / "Coverage by Focus / Key Core" → `pipeline_coverage_by_category`
-       - "Show me UT15 underperformance on SaaS for Q1 2026" / "SaaS by platform" → `ut15_saas_underperformance`
-       - "Show me win rate analysis by product category for 2026" → `win_rate_by_category`
-       - "Which UT15s are underperforming against their SaaS budget?" / "CQ performance by region" → `ut15_and_regional_cq`
-       - "What portion of call pipeline has won?" / "Call pipeline conversion" → `call_pipeline_conversion`
-     The tool resolves common aliases ("lost pipeline", "ut15", "regional", "portion won", etc.) and returns `{ok, document, section, page, citation, data}`.
+       - "What is CQ performance vs budget?" / "Show me transactional and SaaS attainment" -> `cq_performance_vs_budget`
+       - "What pipelines did we lose last quarter and the primary loss reasons?" / "Lost pipeline by reason" -> `lost_pipeline_by_reason`
+       - "Show me Q1 2026 pipeline coverage by product category" / "Coverage by Focus / Key Core" -> `pipeline_coverage_by_category`
+       - "Show me UT15 SaaS underperformance on SaaS for Q1 2026" / "SaaS by platform" -> `ut15_saas_underperformance`
+       - "Show me win rate analysis by product category for 2026" -> `win_rate_by_category`
+       - "Which UT15s are underperforming against their SaaS budget?" / "CQ performance by region" -> `ut15_and_regional_cq`
+       - "What portion of call pipeline has won?" / "Call pipeline conversion" -> `call_pipeline_conversion`
+     The tool resolves common aliases and returns `{ok, document, section, page, citation, data}`.
   2. Pick the matching v0.8 example template (one per section):
-       - `cq_performance_vs_budget`         → `---BEGIN dashboard_cq_performance_vs_budget---`
-       - `lost_pipeline_by_reason`          → `---BEGIN dashboard_lost_pipeline_by_reason---`
-       - `pipeline_coverage_by_category`    → `---BEGIN dashboard_pipeline_coverage_by_category---`
-       - `ut15_saas_underperformance`       → `---BEGIN dashboard_ut15_saas_underperformance---`
-       - `win_rate_by_category`             → `---BEGIN dashboard_win_rate_by_category---`
-       - `ut15_and_regional_cq`             → `---BEGIN dashboard_ut15_and_regional_cq---`
-       - `call_pipeline_conversion`         → `---BEGIN dashboard_call_pipeline_conversion---`
-  3. Use the tool response numbers verbatim. Substitute every `Text` `literalString` (KPI labels, KPI values like `$25.79M`/`50.4%`, section headers, insight body) and every Vega `data.values` row from the corresponding sub-block in the tool's `data` field. Keep Vega `field` names (`category`, `series`, `value`, `pct`, `region`, etc.) unchanged.
-  4. **Always render the citation** in the trailing `citation-text` Text component, copied verbatim from `data.citation`. The citation distinguishes whitepaper-direct numbers ("Source: Whitepaper p.X") from derived drill-downs ("AskEPM illustrative drill-down"). Never drop or rewrite it.
-  5. For DataGrids, pass raw numeric values in `rowData` (e.g. `2400000`, `0.55`, `-1080000`) — `schema.fields[].type` of `currency` / `percentage` / `integer` drives the formatting. Do NOT pre-format to "$2.4M" or "55%".
-  6. Generate a fresh `surfaceId` per request (e.g. `wp-cq-performance-<unix-ts>`).
+       - `cq_performance_vs_budget`         -> `---BEGIN dashboard_cq_performance_vs_budget---`
+       - `lost_pipeline_by_reason`          -> `---BEGIN dashboard_lost_pipeline_by_reason---`
+       - `pipeline_coverage_by_category`    -> `---BEGIN dashboard_pipeline_coverage_by_category---`
+       - `ut15_saas_underperformance`       -> `---BEGIN dashboard_ut15_saas_underperformance---`
+       - `win_rate_by_category`             -> `---BEGIN dashboard_win_rate_by_category---`
+       - `ut15_and_regional_cq`             -> `---BEGIN dashboard_ut15_and_regional_cq---`
+       - `call_pipeline_conversion`         -> `---BEGIN dashboard_call_pipeline_conversion---`
+  3. Use the tool response numbers verbatim. Substitute every `Text` `literalString` and every Vega `data.values` row from the corresponding sub-block in the tool's `data` field. Keep Vega `field` names (`category`, `series`, `value`, `pct`, `region`, etc.) unchanged.
+  4. **Always render the citation** in the trailing `citation-text` Text component, copied verbatim from `data.citation`.
+  5. For DataGrids, pass raw numeric values in `rowData` (e.g. `2400000`, `0.55`, `-1080000`) — `schema.fields[].type` of `currency` / `percentage` / `integer` drives the formatting.
+  6. Generate a fresh `surfaceId` per request.
   7. These dashboards are v0.8-only. If the active client is v0.9, fall back to a single `Chart` (donut for breakdowns, bar for ranked comparisons) plus a Text summary that includes the citation.
-  8. Always include a short plain-text intro alongside the tool call (e.g. `"Here's CQ performance vs budget from the Q1 2026 whitepaper:"`).
-
-- When the user asks for restaurant details, respond with **text only** in Markdown format. Do NOT call the A2UI tool.
-- For found restaurants (e.g. from buttons like 'Show on map'), use `send_a2ui_json_to_client` directly with the name and address you already have. Do NOT re-fetch the restaurant.
-- **Action button clicks**: If the user message starts with `Selected:` (e.g. `Selected: showOnMap`, `Selected: selectRestaurants`), the user clicked an A2UI button. You MUST respond by calling `send_a2ui_json_to_client` with the appropriate example — NEVER with text only. The restaurant name and address are in the action context; reuse them.
-- When the user asks for directions, call `get_directions` to resolve addresses, then use `send_a2ui_json_to_client` with a `WebFrameUrl` showing the route. Also include a Text component with a clickable link: "[View full directions on Google Maps](directions_url)". **For the WebFrameUrl `origin` and `destination` query params, use `origin_query` and `destination_query` from the tool response (NOT the bare `origin`/`destination` addresses)** — these are name-prefixed and disambiguate POIs that share a street address (e.g. two restaurants inside the same resort).
-- For restaurant lists, map views, and directions, you MUST use the A2UI tool.
-- **Use Conversation History**: If the user refers to a location or restaurant mentioned previously (like "Urban Plates"), you MUST check the conversation history for its address. Do NOT ask the user for the address or search for it if it was already provided in the chat.
-- **Resolve Abbreviations**: Expand common abbreviations like "PLV" or "Plv" to "Playa Vista" when searching or getting directions to ensure robust queries.
-- **Workspace Documents (simple writes)**: If the user asks to create a Google Doc or summarize in Drive and you only need plain-text content, the convenience wrappers are the shortest path:
-  - First, call **`create_doc`** with a descriptive title (and optional `folder_name`).
-  - Second, call **`append_doc_text`** with the generated content.
-  - Do NOT call a tool named `write` — it does not exist.
-- **Workspace API via `gws_call` (full surface)**: For anything beyond plain-text doc/sheet ops — rich Docs formatting (`batchUpdate` with `updateTextStyle`, `insertText`), Sheets formula writes, Drive search/move, **modifying existing** Slides decks (NOT creating new ones — see Presentation Generation above) — translate every documented `gws-*` skill command into one `gws_call` invocation. The pattern:
-  - `gws <service> <resource> [<sub_resource>] <method> [--params <JSON>] [--json <JSON>] [--upload <PATH>] [--page-all]`
-  - becomes
-  - `gws_call(service="<service>", resource="<resource>", sub_resource="<sub_resource or empty>", method="<method>", params="<JSON string from --params, empty if absent>", json_body="<JSON string from --json, empty if absent>", upload_path="<path from --upload, empty if absent>", page_all=<true if --page-all>)`
-  - **`params` and `json_body` are JSON-encoded strings, not dicts.** Pass `params='{"spreadsheetId":"abc"}'`, NOT `params={"spreadsheetId":"abc"}`.
-  - Examples:
-    - `gws docs documents create --json '{"title":"X"}'` → `gws_call(service="docs", resource="documents", method="create", json_body='{"title":"X"}')`
-    - `gws sheets spreadsheets values get --params '{"spreadsheetId":"abc","range":"A1:C10"}'` → `gws_call(service="sheets", resource="spreadsheets", sub_resource="values", method="get", params='{"spreadsheetId":"abc","range":"A1:C10"}')`
-    - `gws drive files list --page-all` → `gws_call(service="drive", resource="files", method="list", page_all=True)`
-  - The ADK runtime cannot run shell commands directly — `gws_call` is the only path to the `gws` CLI.
-- **Workspace artifact naming** (restaurant-finder defaults; honor user overrides). Substitute `<YYYY-MM-DD>` with today's date and `<City>` with the city you searched in:
-  - Docs: `<YYYY-MM-DD>_<City>_Restaurant_Recommendations`
-  - Sheets: `<YYYY-MM-DD>_<City>_Restaurants`
-  - Slides: `<YYYY-MM-DD>_<City>_Restaurant_Tour`
-  - Place artifacts in the user's Drive root unless they specify a folder. For multi-city trips, create one artifact and append sections — not one per restaurant.
-- **Tool error handling**: Every workspace tool returns `{"ok": True, "data": ...}` or `{"ok": False, "error": ...}`. On `ok=False`, surface a one-line apology and the human-readable `error` verbatim. Do NOT retry automatically.
-
+  8. Always include a short plain-text intro alongside the tool call.
 """
 
 UI_DESCRIPTION = """
-**Core Objective:** Provide a dynamic restaurant finder dashboard by constructing UI surfaces.
+**Core Objective:** Provide sales analytics dashboards by constructing UI surfaces based on the Q1 2026 whitepaper.
 
 **Key Components & Examples:**
 
-1.  **Restaurant List:** Used when users ask to find/browse restaurants.
-    * **Template:** Use the JSON from `---BEGIN RESTAURANT_SELECTION EXAMPLE---`.
-    * Populate the example with real restaurant data from the `find_restaurants` tool, following the example's structure exactly.
-    * Each restaurant item should have: name, rating (★ characters), detail, address, infoLink.
-    * **CRITICAL:** For queries asking to find, search, or list multiple restaurants, you MUST use this template. Do NOT use the `MAP` template for list queries.
-    * **Button labels MUST be copied verbatim from the example.** The two
-      per-restaurant buttons are "Detailed Information" (action
-      `selectRestaurants`) and "Show on Map" (action `showOnMap`). Do NOT
-      rename them, do NOT add a "Directions" button, and do NOT change the
-      action names.
+1.  **AskIBM Dashboards:** Used when users ask about sales performance based on the whitepaper.
+    * **Templates:** `---BEGIN dashboard_*---` templates.
+    * Populate with data from `read_whitepaper_section`.
 
-2.  **Map View:** Used when users ask to see a location on a map.
-    * **Template:** Use the JSON from `---BEGIN MAP EXAMPLE---`.
-    * Use the `WebFrameUrl` component with URL `/maps/embed?mode=place&q=URL_ENCODED_NAME_AND_ADDRESS`.
-    * The URL must be a `literalString`. Do NOT include any API key — the backend adds it automatically.
-    * Always call `send_a2ui_json_to_client` with a WebFrameUrl component. NEVER respond with just a text link.
-
-3.  **Directions:** Used when users ask for routes or directions between two locations.
-    * **Template:** Use the JSON from `---BEGIN DIRECTIONS EXAMPLE---`.
-    * Call `get_directions` first to resolve origin and destination addresses.
-    * Use the `WebFrameUrl` component with URL `/maps/embed?mode=directions&origin=URL_ENCODED_ORIGIN&destination=URL_ENCODED_DESTINATION`.
-    * The URL must be a `literalString`. Do NOT include any API key — the backend adds it automatically.
-    * Also include a Text component with a clickable link to the full directions.
-
-You will also use layout components like `Column`, `Row`, `Card`, `List`, `Text`, and `Button`.
-The `WebFrameUrl` component embeds an iframe for displaying maps and other web content.
+2.  **Generic Charts:** Used for ad-hoc charting requests.
+    * **Templates:** `---BEGIN chart---`, `---BEGIN pie_chart---`, `---BEGIN multi_series_bar---`, `---BEGIN weather_forecast_chart---`.
 """
-
-
-_UI_KEYWORDS = {
-    "show on map",
-    "showonmap",
-    "map",
-    "directions",
-    "route",
-    "navigate",
-    "show on the map",
-    "show it on",
-    "selected:",
-}
-
-_TOOL_CALL_REMINDER = (
-    "\n\n[SYSTEM REMINDER] The user's request requires a visual UI response. "
-    "You MUST call the `send_a2ui_json_to_client` tool with an `a2ui_json` "
-    "argument. Do NOT respond with text only. In particular, do NOT reply "
-    "with 'Here you go:' followed by the restaurant name and address — that "
-    "is exactly the failure case. Call the tool NOW."
-)
-
-_PRESENTATION_KEYWORDS = (
-    "presentation",
-    "slide deck",
-    "slidedeck",
-    "slides",
-    " deck",  # leading space avoids matching "decked" etc.
-    "pptx",
-    "powerpoint",
-    ".pptx",
-)
-
-_PRESENTATION_CONTEXT_PREAMBLE = (
-    "\n\n[SYSTEM REMINDER] The user is requesting a presentation/deck. "
-    "Restaurant data from earlier turns of THIS conversation is reproduced "
-    "below — it came from prior `find_restaurants` tool responses still in "
-    "your session events. USE THIS DATA as the source for the deck. Do NOT "
-    "respond 'I don't have any previous information' or 'Could you let me "
-    "know which city...' — that exact response is the failure mode this "
-    "reminder exists to prevent. Build the outline from these restaurants, "
-    "one body slide per restaurant, then run the presentation-skill workflow.\n\n"
-    "=== Restaurant data from this conversation ===\n"
-)
-
-
-def _extract_function_response_payload(fr) -> str | None:
-    """Pull the actual return value out of a function_response part.
-
-    ADK wraps tool returns in a few shapes depending on version. Try the
-    common keys, fall back to a JSON dump.
-    """
-    resp = getattr(fr, "response", None)
-    if resp is None:
-        return None
-    if isinstance(resp, str):
-        return resp
-    if isinstance(resp, dict):
-        for key in ("result", "response", "value", "output"):
-            if key in resp:
-                inner = resp[key]
-                return inner if isinstance(inner, str) else json.dumps(inner)
-        try:
-            return json.dumps(resp)
-        except (TypeError, ValueError):
-            return str(resp)
-    return str(resp)
-
-
-def _collect_recent_restaurant_data(events) -> str | None:
-    """Walk session events newest-first; return the most recent
-    `find_restaurants` tool response as a string, or None if no
-    restaurant data exists in this session.
-    """
-    for event in reversed(events or []):
-        content = getattr(event, "content", None)
-        if not content or not getattr(content, "parts", None):
-            continue
-        for part in content.parts:
-            fr = getattr(part, "function_response", None)
-            if fr and getattr(fr, "name", None) == "find_restaurants":
-                payload = _extract_function_response_payload(fr)
-                if payload:
-                    return payload
-    return None
 
 
 def _before_model_callback(
     callback_context: CallbackContext, llm_request: LlmRequest
 ) -> LlmResponse | None:
-    """Inject reminders on the way into the model:
-
-    1. A2UI tool-call reminder when the user's intent needs visual UI.
-    2. Inline restaurant data from prior `find_restaurants` results when
-       the user asks for a presentation. Putting the data right next to
-       the directive is the only reliable way to stop the model from
-       falsely claiming "I don't have any previous information" — prompt
-       rules alone have proven insufficient.
-    """
-    events = callback_context.session.events or []
-
-    # Find the most recent user message
-    last_user_msg = ""
-    for event in reversed(events):
-        if event.author == "user" and event.content and event.content.parts:
-            for part in event.content.parts:
-                if part.text:
-                    last_user_msg = part.text.lower()
-                    break
-            break
-
-    if not last_user_msg:
-        return None
-
-    extra_instructions: list[str] = []
-
-    needs_ui = any(kw in last_user_msg for kw in _UI_KEYWORDS)
-    is_presentation = any(kw in last_user_msg for kw in _PRESENTATION_KEYWORDS)
-
-    if needs_ui:
-        extra_instructions.append(_TOOL_CALL_REMINDER)
-
-    if is_presentation:
-        # Diagnostic: enumerate every event so we can see what (if anything)
-        # earlier turns deposited into this session. If the list is short
-        # or empty when the user "previously searched", the client is
-        # sending a fresh context_id per turn and the search results never
-        # made it here.
-        event_summary: list[str] = []
-        function_responses: list[str] = []
-        function_calls: list[str] = []
-        for ev in events:
-            author = getattr(ev, "author", "?")
-            content = getattr(ev, "content", None)
-            if not content or not getattr(content, "parts", None):
-                event_summary.append(f"{author}:<no-parts>")
-                continue
-            kinds = []
-            for part in content.parts:
-                if getattr(part, "text", None):
-                    kinds.append(f"text({len(part.text)}b)")
-                fr = getattr(part, "function_response", None)
-                if fr:
-                    name = getattr(fr, "name", "?")
-                    kinds.append(f"fn_resp({name})")
-                    function_responses.append(name)
-                fc = getattr(part, "function_call", None)
-                if fc:
-                    name = getattr(fc, "name", "?")
-                    kinds.append(f"fn_call({name})")
-                    function_calls.append(name)
-            event_summary.append(f"{author}:[{','.join(kinds)}]")
-
-        restaurant_payload = _collect_recent_restaurant_data(events)
-        if restaurant_payload:
-            if len(restaurant_payload) > 16_000:
-                restaurant_payload = (
-                    restaurant_payload[:16_000]
-                    + "\n... [truncated; full data in conversation history]"
-                )
-            extra_instructions.append(
-                _PRESENTATION_CONTEXT_PREAMBLE + restaurant_payload
-            )
-            logger.warning(
-                "[before_model_callback] presentation request — INJECTED"
-                " %d bytes of restaurant data. session_events=%d"
-                " fn_calls=%s fn_responses=%s",
-                len(restaurant_payload),
-                len(events),
-                function_calls,
-                function_responses,
-            )
-        else:
-            logger.warning(
-                "[before_model_callback] presentation request but NO"
-                " find_restaurants response found. session_id=%s"
-                " session_events=%d fn_calls=%s fn_responses=%s"
-                " event_summary=%s last_user_msg=%r",
-                getattr(callback_context.session, "id", "?"),
-                len(events),
-                function_calls,
-                function_responses,
-                event_summary,
-                last_user_msg[:200],
-            )
-
-    if extra_instructions:
-        llm_request.append_instructions(extra_instructions)
+    """No-op callback as restaurant and presentation reminders are removed."""
     return None
 
 
@@ -519,14 +222,14 @@ def _get_a2ui_examples(ctx: ReadonlyContext):
     return ctx.state.get(A2UI_EXAMPLES_KEY)
 
 
-class RestaurantFinderAgent:
-    """Restaurant Finder agent with A2UI GE UI support."""
+class A2uiDemoAgent:
+    """A2UI Demo agent with A2UI GE UI support."""
 
     SUPPORTED_CONTENT_TYPES: ClassVar[list[str]] = ["text", "text/plain"]
 
     def __init__(self, base_url: str):
         self.base_url = base_url
-        self._agent_name = "a2ui_restaurant_finder"
+        self._agent_name = "a2ui_dashboard_agent"
         self._user_id = "remote_agent"
 
         self._session_service = InMemorySessionService()
@@ -561,9 +264,7 @@ class RestaurantFinderAgent:
         return self._schema_managers.get(version)
 
     def _build_schema_manager(self, version: str) -> A2uiSchemaManager:
-        examples_path = os.path.join(
-            _APP_DIR, "examples", "restaurant_finder_catalog", version
-        )
+        examples_path = os.path.join(_APP_DIR, "examples", "a2ui_demo_catalog", version)
         if version == VERSION_0_8:
             # v0.8: ship a custom catalog defining WebFrameUrl + GoogleMap
             # alongside the standard components. GE renders v0.8 inline
@@ -573,7 +274,7 @@ class RestaurantFinderAgent:
                 version=version,
                 catalogs=[
                     CatalogConfig(
-                        name="restaurant_finder",
+                        name="a2ui_demo",
                         provider=FileSystemCatalogProvider(
                             CATALOG_DEFINITION_JSON_V0_8
                         ),
@@ -617,7 +318,7 @@ class RestaurantFinderAgent:
             version=version,
             catalogs=[
                 CatalogConfig(
-                    name="restaurant_finder",
+                    name="a2ui_demo",
                     provider=_MergedBasicCatalogProvider(
                         version=version,
                         custom_catalog_path=CATALOG_DEFINITION_JSON,
@@ -626,7 +327,7 @@ class RestaurantFinderAgent:
                     examples_path=examples_path,
                 ),
                 CatalogConfig(
-                    name="a2ui_restaurant_finder",
+                    name="a2ui_demo_agent",
                     provider=_MergedBasicCatalogProvider(
                         version=version,
                         custom_catalog_path=CATALOG_DEFINITION_JSON,
@@ -635,7 +336,7 @@ class RestaurantFinderAgent:
                     examples_path=examples_path,
                 ),
                 CatalogConfig(
-                    name="a2ui-restaurant-finder-catalog",
+                    name="a2ui-demo-catalog",
                     provider=_MergedBasicCatalogProvider(
                         version=version,
                         custom_catalog_path=CATALOG_DEFINITION_JSON,
@@ -665,39 +366,14 @@ class RestaurantFinderAgent:
         )
 
         return AgentCard(
-            name="Restaurant Finder Agent",
-            description="Restaurant Finder Agent using Google Maps with A2UI v0.8",
+            name="A2UI Dashboard Agent",
+            description="A2UI Dashboard Agent using VegaChart and DataGrid based on Q1 2026 whitepaper",
             url=self.base_url,
             version="1.0.0",
             default_input_modes=self.SUPPORTED_CONTENT_TYPES,
             default_output_modes=self.SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=[
-                AgentSkill(
-                    id="restaurant_lookup",
-                    name="Restaurant Lookup",
-                    description="Find restaurants and view their details.",
-                    tags=["restaurant", "food", "maps"],
-                    examples=[
-                        "Tell me about Han Dynasty?",
-                        "What restaurants are available in NYC?",
-                        "Show me the details of RedFarm.",
-                    ],
-                ),
-                AgentSkill(
-                    id="weather_lookup",
-                    name="Weather Lookup",
-                    description=(
-                        "Look up current weather conditions and short-term "
-                        "forecasts for a given location via Google Search."
-                    ),
-                    tags=["weather", "forecast", "search"],
-                    examples=[
-                        "What's the weather in Playa Vista right now?",
-                        "Will it rain in NYC tomorrow?",
-                        "How hot is it in Phoenix today?",
-                    ],
-                ),
                 AgentSkill(
                     id="askibm_whitepaper_dashboards",
                     name="AskIBM Whitepaper Dashboards",
@@ -762,77 +438,19 @@ class RestaurantFinderAgent:
             else ROLE_DESCRIPTION
         )
 
-        # Explicit skill list — narrowed to the docs/sheets/slides surface
-        # the agent actually needs. The recursive glob previously loaded ~95
-        # vendored skills (gmail, calendar, persona-*, recipe-*, …) that the
-        # agent advertises but cannot fulfil. The routing overlay
-        # `restaurant-finder-overrides` tells the LLM how to translate every
-        # `gws-*` skill's documented bash commands into `gws_call(...)`.
-        skill_subdirs = [
-            "presentation-skill",
-            "workspace/gws-shared",
-            "workspace/gws-drive",
-            "workspace/gws-drive-upload",
-            "workspace/gws-docs",
-            "workspace/gws-docs-write",
-            "workspace/gws-sheets",
-            "workspace/gws-sheets-read",
-            "workspace/gws-sheets-append",
-            "workspace/gws-slides",
-        ]
-        skills = [
-            load_skill_from_dir(os.path.join(_APP_DIR, "skills", sub))
-            for sub in skill_subdirs
-        ]
-
-        workspace_skills = SkillToolset(
-            skills=skills,
-            additional_tools=[
-                # Tools claimed by `presentation-skill` via its
-                # `adk_additional_tools` metadata. SkillToolset only exposes
-                # these once the LLM activates the skill via load_skill(),
-                # which keeps the surface narrow until needed.
-                upload_presentation,
-                rearrange_presentation_slides,
-                extract_presentation_inventory,
-                apply_presentation_replacements_data,
-                read_local_file,
-            ],
-        )
-
         return LlmAgent(
             model=model,
             name=self._agent_name,
-            description="Restaurant Finder Agent using Google Maps",
+            description="A2UI Dashboard Agent (AskIBM whitepaper)",
             instruction=instruction,
             before_model_callback=_before_model_callback,
             tools=[
-                find_restaurants,
-                get_directions,
                 read_whitepaper_section,
                 SendA2uiToClientToolset(
                     a2ui_enabled=_get_a2ui_enabled,
                     a2ui_catalog=_get_a2ui_catalog,
                     a2ui_examples=_get_a2ui_examples,
                 ),
-                # Always-on workspace tools. None of the loaded `gws-*`
-                # skills declare `adk_additional_tools`, so anything that
-                # should be available without a `load_skill` ceremony has
-                # to live here, not inside the SkillToolset. Avoid putting
-                # presentation-skill's tools here too — that would emit
-                # duplicate function declarations once the skill is loaded.
-                gws_call,
-                create_doc,
-                append_doc_text,
-                share_doc,
-                share_anyone_with_link,
-                create_sheet,
-                append_sheet_data,
-                read_doc,
-                read_sheet,
-                read_presentation,
-                read_drive_file,
-                workspace_skills,
             ],
             sub_agents=[get_search_agent()],
         )

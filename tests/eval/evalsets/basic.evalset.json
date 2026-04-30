@@ -1,7 +1,7 @@
 {
   "eval_set_id": "basic_eval",
   "name": "Basic Agent Evaluation",
-  "description": "Sample evaluation set for testing core agent functionality. Customize these cases based on your DESIGN_SPEC.md.",
+  "description": "Evaluation set for testing core agent functionality including dashboards.",
   "eval_cases": [
     {
       "eval_id": "greeting",
@@ -24,6 +24,36 @@
         {
           "user_content": {
             "parts": [{"text": "What tools do you have available?"}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "cq_performance",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "What is CQ performance vs budget?"}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "lost_pipeline",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "Show me lost pipeline by reason."}]
           }
         }
       ],

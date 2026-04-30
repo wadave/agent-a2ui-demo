@@ -25,11 +25,9 @@ import * as v0_9 from "@a2ui/web_core/v0_9";
 import { basicCatalog, Context, type LitComponentApi } from "@a2ui/lit/v0_9";
 import { renderMarkdown } from "@a2ui/markdown-it";
 
-import { RestaurantA2UIClient } from "./client.js";
-import { customCatalog } from "./google-map-component.js";
-// Side-effect import: registers Chart + Canvas on the shared basicCatalog so
-// v0.9 MessageProcessor can resolve them when surfaces arrive.
-import "./chart-component.js";
+import { A2UIClient } from "./client.js";
+import "./vega-chart-component.js";
+import "./data-grid-component.js";
 
 interface ChatMessage {
   role: "user" | "agent";
@@ -59,7 +57,7 @@ export class A2UIShell extends SignalWatcher(LitElement) {
   // Bump this to force a re-render after the processor's surfacesMap mutates.
   @state() accessor renderVersion = 0;
 
-  #client = new RestaurantA2UIClient();
+  #client = new A2UIClient();
 
   /**
    * Single processor for the lifetime of the shell. Surfaces accumulate in
@@ -67,7 +65,7 @@ export class A2UIShell extends SignalWatcher(LitElement) {
    * IDs that came in with that response so we can render them in-place.
    */
   #processor = new v0_9.MessageProcessor<LitComponentApi>(
-    [basicCatalog, customCatalog],
+    [basicCatalog],
     async (action: v0_9.A2uiClientAction): Promise<void> => {
       // Show the action as a synthetic user message in the transcript.
       this.messages = [
@@ -348,7 +346,7 @@ export class A2UIShell extends SignalWatcher(LitElement) {
       <div class="header">
         <img src="/gemini-icon.svg" width="28" height="28" alt="Gemini" />
         <div class="header-title">
-          <h1>Restaurant Finder</h1>
+          <h1>AskIBM Sales Analytics</h1>
           <div class="subtitle">Agent · A2UI v0.9</div>
         </div>
         <div class="header-spacer"></div>
@@ -374,7 +372,7 @@ export class A2UIShell extends SignalWatcher(LitElement) {
           <input
             type="text"
             name="query"
-            placeholder="Ask about restaurants..."
+            placeholder="Ask about Q1 2026 sales performance..."
             autocomplete="off"
             ?disabled=${this.requesting}
           />
@@ -391,17 +389,17 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     return html`
       <div class="welcome">
         <img class="welcome-gem" src="/gemini-icon.svg" alt="Gemini" />
-        <h2>Hello, foodie</h2>
-        <p>Ask me about restaurants, get details, compare options, or browse what's available near you.</p>
+        <h2>Hello</h2>
+        <p>Ask me about Q1 2026 sales performance based on the whitepaper.</p>
         <div class="suggestions">
-          <button class="suggestion" @click=${() => this.quickSend("What restaurants are available?")}>
-            Browse all restaurants
+          <button class="suggestion" @click=${() => this.quickSend("What is CQ performance vs budget?")}>
+            CQ performance vs budget
           </button>
-          <button class="suggestion" @click=${() => this.quickSend("Tell me about Han Dynasty")}>
-            Tell me about Han Dynasty
+          <button class="suggestion" @click=${() => this.quickSend("Lost pipeline by reason")}>
+            Lost pipeline by reason
           </button>
-          <button class="suggestion" @click=${() => this.quickSend("Show me details for RedFarm")}>
-            Show details for RedFarm
+          <button class="suggestion" @click=${() => this.quickSend("Pipeline coverage by category")}>
+            Pipeline coverage by category
           </button>
         </div>
       </div>

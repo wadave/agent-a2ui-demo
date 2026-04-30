@@ -1,0 +1,287 @@
+[
+  {
+    "version": "v0.9",
+    "createSurface": {
+      "surfaceId": "wp-cq-performance",
+      "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"
+    }
+  },
+  {
+    "version": "v0.9",
+    "updateComponents": {
+      "surfaceId": "wp-cq-performance",
+      "components": [
+        {
+          "id": "root",
+          "component": "Canvas",
+          "children": ["page-title", "page-subtitle", "kpi-row-1", "stacked-section", "kpi-row-2", "insight-card", "citation-text"]
+        },
+        {
+          "id": "page-title",
+          "component": "Text",
+          "variant": "h2",
+          "text": { "literalString": "AskIBM CQ performance vs budget — Q1 2026" }
+        },
+        {
+          "id": "page-subtitle",
+          "component": "Text",
+          "variant": "caption",
+          "text": { "literalString": "Transactional and SaaS budget against won pipeline · US Select Territory" }
+        },
+        {
+          "id": "kpi-row-1",
+          "component": "Row",
+          "children": ["kpi-1", "kpi-2", "kpi-3", "kpi-4"],
+          "distribution": "spaceBetween",
+          "alignment": "start"
+        },
+        {
+          "id": "kpi-1",
+          "component": "Card",
+          "children": ["kpi-1-col"]
+        },
+        {
+          "id": "kpi-1-col",
+          "component": "Column",
+          "children": ["kpi-1-label", "kpi-1-value"],
+          "alignment": "start"
+        },
+        {
+          "id": "kpi-1-label",
+          "component": "Text",
+          "variant": "caption",
+          "text": { "literalString": "Transactional budget" }
+        },
+        {
+          "id": "kpi-1-value",
+          "component": "Text",
+          "variant": "h1",
+          "text": { "literalString": "$51.16M" }
+        },
+        {
+          "id": "kpi-2",
+          "component": "Card",
+          "children": ["kpi-2-col"]
+        },
+        {
+          "id": "kpi-2-col",
+          "component": "Column",
+          "children": ["kpi-2-label", "kpi-2-value"],
+          "alignment": "start"
+        },
+        {
+          "id": "kpi-2-label",
+          "component": "Text",
+          "variant": "caption",
+          "text": { "literalString": "Transactional won" }
+        },
+        {
+          "id": "kpi-2-value",
+          "component": "Text",
+          "variant": "h1",
+          "text": { "literalString": "$25.79M" }
+        },
+        {
+          "id": "kpi-3",
+          "component": "Card",
+          "children": ["kpi-3-col"]
+        },
+        {
+          "id": "kpi-3-col",
+          "component": "Column",
+          "children": ["kpi-3-label", "kpi-3-value"],
+          "alignment": "start"
+        },
+        {
+          "id": "kpi-3-label",
+          "component": "Text",
+          "variant": "caption",
+          "text": { "literalString": "SaaS budget" }
+        },
+        {
+          "id": "kpi-3-value",
+          "component": "Text",
+          "variant": "h1",
+          "text": { "literalString": "$31.62M" }
+        },
+        {
+          "id": "kpi-4",
+          "component": "Card",
+          "children": ["kpi-4-col"]
+        },
+        {
+          "id": "kpi-4-col",
+          "component": "Column",
+          "children": ["kpi-4-label", "kpi-4-value"],
+          "alignment": "start"
+        },
+        {
+          "id": "kpi-4-label",
+          "component": "Text",
+          "variant": "caption",
+          "text": { "literalString": "SaaS won" }
+        },
+        {
+          "id": "kpi-4-value",
+          "component": "Text",
+          "variant": "h1",
+          "text": { "literalString": "$11.50M" }
+        },
+        {
+          "id": "stacked-section",
+          "component": "Column",
+          "children": ["stacked-header", "stacked-bar"],
+          "alignment": "stretch"
+        },
+        {
+          "id": "stacked-header",
+          "component": "Text",
+          "variant": "h3",
+          "text": { "literalString": "Attainment vs budget gap" }
+        },
+        {
+          "id": "stacked-bar",
+          "component": "VegaChart",
+          "spec": {
+            "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+            "data": {
+              "values": [
+                { "category": "Transactional", "series": "Won pipeline", "value": 25.79 },
+                { "category": "Transactional", "series": "Budget gap", "value": 25.37 },
+                { "category": "SaaS", "series": "Won pipeline", "value": 11.50 },
+                { "category": "SaaS", "series": "Budget gap", "value": 20.12 }
+              ]
+            },
+            "mark": "bar",
+            "encoding": {
+              "x": { "field": "category", "type": "nominal", "axis": { "labelAngle": 0 }, "title": null },
+              "y": { "field": "value", "type": "quantitative", "title": "$ millions", "stack": "zero" },
+              "color": {
+                "field": "series", "type": "nominal",
+                "scale": { "domain": ["Won pipeline", "Budget gap"], "range": ["#0f62fe", "#a8a8a8"] },
+                "legend": { "orient": "top", "title": null }
+              },
+              "order": { "field": "series", "sort": "descending" }
+            }
+          }
+        },
+        {
+          "id": "kpi-row-2",
+          "component": "Row",
+          "children": ["kpi-5", "kpi-6", "kpi-7", "kpi-8"],
+          "distribution": "spaceBetween",
+          "alignment": "start"
+        },
+        {
+          "id": "kpi-5",
+          "component": "Card",
+          "children": ["kpi-5-col"]
+        },
+        {
+          "id": "kpi-5-col",
+          "component": "Column",
+          "children": ["kpi-5-label", "kpi-5-value"],
+          "alignment": "start"
+        },
+        {
+          "id": "kpi-5-label",
+          "component": "Text",
+          "variant": "caption",
+          "text": { "literalString": "Transactional attainment" }
+        },
+        {
+          "id": "kpi-5-value",
+          "component": "Text",
+          "variant": "h1",
+          "text": { "literalString": "50.4%" }
+        },
+        {
+          "id": "kpi-6",
+          "component": "Card",
+          "children": ["kpi-6-col"]
+        },
+        {
+          "id": "kpi-6-col",
+          "component": "Column",
+          "children": ["kpi-6-label", "kpi-6-value"],
+          "alignment": "start"
+        },
+        {
+          "id": "kpi-6-label",
+          "component": "Text",
+          "variant": "caption",
+          "text": { "literalString": "SaaS attainment" }
+        },
+        {
+          "id": "kpi-6-value",
+          "component": "Text",
+          "variant": "h1",
+          "text": { "literalString": "36.4%" }
+        },
+        {
+          "id": "kpi-7",
+          "component": "Card",
+          "children": ["kpi-7-col"]
+        },
+        {
+          "id": "kpi-7-col",
+          "component": "Column",
+          "children": ["kpi-7-label", "kpi-7-value"],
+          "alignment": "start"
+        },
+        {
+          "id": "kpi-7-label",
+          "component": "Text",
+          "variant": "caption",
+          "text": { "literalString": "Transactional budget gap" }
+        },
+        {
+          "id": "kpi-7-value",
+          "component": "Text",
+          "variant": "h1",
+          "text": { "literalString": "-$25.37M" }
+        },
+        {
+          "id": "kpi-8",
+          "component": "Card",
+          "children": ["kpi-8-col"]
+        },
+        {
+          "id": "kpi-8-col",
+          "component": "Column",
+          "children": ["kpi-8-label", "kpi-8-value"],
+          "alignment": "start"
+        },
+        {
+          "id": "kpi-8-label",
+          "component": "Text",
+          "variant": "caption",
+          "text": { "literalString": "SaaS budget gap" }
+        },
+        {
+          "id": "kpi-8-value",
+          "component": "Text",
+          "variant": "h1",
+          "text": { "literalString": "-$20.12M" }
+        },
+        {
+          "id": "insight-card",
+          "component": "Card",
+          "children": ["insight-text"]
+        },
+        {
+          "id": "insight-text",
+          "component": "Text",
+          "variant": "body",
+          "text": { "literalString": "Key insight: Both segments are tracking below 51% of Q1 2026 budget. Transactional carries the larger dollar shortfall at -$25.37M (50.4% attainment); SaaS trails further on attainment rate at 36.4% with a -$20.12M gap." }
+        },
+        {
+          "id": "citation-text",
+          "component": "Text",
+          "variant": "caption",
+          "text": { "literalString": "Source: Q1 2026 US Select Whitepaper, p. 3" }
+        }
+      ]
+    }
+  }
+]

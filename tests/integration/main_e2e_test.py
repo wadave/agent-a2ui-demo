@@ -19,6 +19,7 @@ The server uses A2AStarletteApplication which serves:
   GET  /.well-known/agent-card.json  Agent card
 """
 
+import json
 import logging
 import os
 import subprocess
@@ -136,29 +137,13 @@ def test_agent_card_required_fields(server):
 
 def test_agent_card_name(server):
     card = requests.get(AGENT_CARD_URL, timeout=10).json()
-    assert card["name"] == "Restaurant Finder Agent"
+    assert card["name"] == "A2UI Dashboard Agent"
 
 
-def test_agent_card_has_restaurant_skill(server):
+def test_agent_card_has_dashboard_skill(server):
     card = requests.get(AGENT_CARD_URL, timeout=10).json()
     skill_ids = [s["id"] for s in card["skills"]]
-    assert "restaurant_lookup" in skill_ids
-
-
-# ---------------------------------------------------------------------------
-# message/send — restaurant list
-# ---------------------------------------------------------------------------
-
-
-def _get_all_parts(data: dict) -> list:
-    """Collect parts from both status.message and artifacts (ADK ≥1.16 may use either)."""
-    result = data.get("result", {})
-    parts: list = []
-    if result.get("status", {}).get("message", {}).get("parts"):
-        parts.extend(result["status"]["message"]["parts"])
-    for artifact in result.get("artifacts", []):
-        parts.extend(artifact.get("parts", []))
-    return parts
+    assert "askibm_whitepaper_dashboards" in skill_ids
 
 
 def _send(text: str, req_id: str = "1", extensions: list[str] | None = None) -> dict:
@@ -175,39 +160,16 @@ def _send(text: str, req_id: str = "1", extensions: list[str] | None = None) -> 
     return requests.post(RPC_URL, headers=HEADERS, json=body, timeout=180).json()
 
 
-def test_list_restaurants_returns_task(server):
-    data = _send("What restaurants do you have?")
-    assert "result" in data
-    assert data["result"]["kind"] == "task"
+def test_whitepaper_dashboard_returns_a2ui(server):
+    """Agent should return A2UI component data for whitepaper dashboard."""
+    data = _send("What is CQ performance vs budget?", extensions=[A2UI_EXTENSION_URI])
 
+    # Collect parts from artifacts
+    result = data.get("result", {})
+    parts = []
+    for artifact in result.get("artifacts", []):
+        parts.extend(artifact.get("parts", []))
 
-def test_list_restaurants_task_completed(server):
-    data = _send("What restaurants do you have?")
-    # Without the A2UI extension header the toolset is inactive, but the LLM
-    # may still attempt to call send_a2ui_json_to_client from its training.
-    # ADK raises an error in that case → state = "failed". Both outcomes are
-    # acceptable for a non-extension request; the extension-enabled tests below
-    # verify the full success path.
-    assert data["result"]["status"]["state"] in ("completed", "failed")
-
-
-def test_list_restaurants_has_artifacts(server):
-    data = _send("What restaurants do you have?")
-    parts = _get_all_parts(data)
-    assert parts, "Expected at least one part in the response"
-
-
-def test_list_restaurants_text_part(server):
-    data = _send("What restaurants do you have?")
-    parts = _get_all_parts(data)
-    text_parts = [p for p in parts if p.get("kind") == "text"]
-    assert text_parts, "Expected a text part in the response"
-
-
-def test_list_restaurants_a2ui_data_part(server):
-    """Agent should return A2UI component data for the restaurant list."""
-    data = _send("Show me restaurants in New York", extensions=[A2UI_EXTENSION_URI])
-    parts = data["result"]["artifacts"][0]["parts"]
     a2ui_parts = [
         p
         for p in parts
@@ -216,85 +178,24 @@ def test_list_restaurants_a2ui_data_part(server):
     ]
     assert a2ui_parts, "Expected at least one A2UI data part"
 
+    # Verify it contains createSurface or updateComponents
+    all_data = []
+    for p in a2ui_parts:
+        p_data = p.get("data", {})
+        if isinstance(p_data, str):
+            try:
+                p_data = json.loads(p_data)
+            except Exception:
+                pass
+        if isinstance(p_data, list):
+            all_data.extend(p_data)
+        else:
+            all_data.append(p_data)
 
-def test_list_restaurants_a2ui_contains_surface_update(server):
-    data = _send("Show me restaurants in New York", extensions=[A2UI_EXTENSION_URI])
-    parts = data["result"]["artifacts"][0]["parts"]
-    a2ui_parts = [
-        p
-        for p in parts
-        if p.get("kind") == "data"
-        and p.get("metadata", {}).get("mimeType") == "application/json+a2ui"
-    ]
-    component_updates = [
-        p for p in a2ui_parts if "updateComponents" in p.get("data", {})
-    ]
-    assert component_updates, "Expected an updateComponents message in A2UI data"
+    has_create = any("createSurface" in d for d in all_data)
+    has_update = any("updateComponents" in d for d in all_data)
 
-
-def _collect_names(value):
-    """Recursively collect every 'name' string from a v0.9 data model value."""
-    found: list[str] = []
-    if isinstance(value, dict):
-        if isinstance(value.get("name"), str):
-            found.append(value["name"])
-        for v in value.values():
-            found.extend(_collect_names(v))
-    elif isinstance(value, list):
-        for item in value:
-            found.extend(_collect_names(item))
-    return found
-
-
-def test_list_restaurants_a2ui_options(server):
-    """The updateDataModel should list the available restaurants."""
-    data = _send("Show me restaurants in New York", extensions=[A2UI_EXTENSION_URI])
-    parts = data["result"]["artifacts"][0]["parts"]
-    all_data = [
-        p["data"]
-        for p in parts
-        if p.get("kind") == "data"
-        and p.get("metadata", {}).get("mimeType") == "application/json+a2ui"
-    ]
-
-    data_updates = [d for d in all_data if "updateDataModel" in d]
-    assert data_updates, "Expected at least one updateDataModel in A2UI data"
-
-    names: list[str] = []
-    for d in data_updates:
-        names.extend(_collect_names(d["updateDataModel"].get("value")))
-
-    assert names, "Expected names in updateDataModel.value"
-    # The mock data names are "Han Dynasty", etc.
-    assert "Han Dynasty" in names
-
-
-# ---------------------------------------------------------------------------
-# message/send — restaurant details
-# ---------------------------------------------------------------------------
-
-
-def test_restaurant_details_single(server):
-    data = _send("Tell me about Han Dynasty")
-    assert data["result"]["status"]["state"] == "completed"
-    parts = _get_all_parts(data)
-    text_parts = [p for p in parts if p.get("kind") == "text"]
-    assert text_parts
-    combined_text = " ".join(p["text"] for p in text_parts)
-    assert "Han Dynasty" in combined_text
-
-
-def test_restaurant_details_no_a2ui_for_details(server):
-    """When showing details, agent should not return A2UI components."""
-    data = _send("Show me details for Mott 32")
-    parts = data["result"]["artifacts"][0]["parts"]
-    a2ui_parts = [
-        p
-        for p in parts
-        if p.get("kind") == "data"
-        and p.get("metadata", {}).get("mimeType") == "application/json+a2ui"
-    ]
-    assert not a2ui_parts, "Did not expect A2UI components for a detail view"
+    assert has_create or has_update, "Expected A2UI messages in data"
 
 
 # ---------------------------------------------------------------------------
