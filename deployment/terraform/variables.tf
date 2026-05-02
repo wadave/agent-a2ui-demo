@@ -15,7 +15,7 @@
 variable "project_name" {
   type        = string
   description = "Project name used as a base for resource naming"
-  default     = "restaurant-finder"
+  default     = "agent-a2ui-skill-demo"
 }
 
 variable "prod_project_id" {
@@ -42,7 +42,7 @@ variable "region" {
 variable "host_connection_name" {
   description = "Name of the host connection to create in Cloud Build"
   type        = string
-  default     = "restaurant-finder-github-connection"
+  default     = "agent-a2ui-skill-demo-github-connection"
 }
 
 variable "gemini_enterprise_app_id" {
@@ -130,5 +130,5 @@ variable "create_repository" {
 variable "feedback_logs_filter" {
   type        = string
   description = "Log Sink filter for capturing feedback data. Captures logs where the `log_type` field is `feedback`."
-  default     = "jsonPayload.log_type=\"feedback\" jsonPayload.service_name=\"restaurant-finder\""
+  default     = "jsonPayload.log_type=\"feedback\" jsonPayload.service_name=\"agent-a2ui-skill-demo\""
 }

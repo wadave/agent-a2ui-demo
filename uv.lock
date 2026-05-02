@@ -52,7 +52,7 @@ wheels = [
 ]
 
 [[package]]
-name = "agent-a2ui-demo"
+name = "agent-a2ui-skill-demo"
 version = "0.1.0"
 source = {editable = "."}
 dependencies = [

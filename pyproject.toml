@@ -11,7 +11,7 @@ dev = [
 ]
 
 [project]
-name = "agent-a2ui-demo"
+name = "agent-a2ui-skill-demo"
 version = "0.1.0"
 description = ""
 authors = [
@@ -54,7 +54,7 @@ lint = [
 [tool.agent-starter-pack]
 # Generation metadata - enables CLI commands to understand project context
 # These fields allow any generated project to work as a remote template
-name = "agent-a2ui-demo"
+name = "agent-a2ui-skill-demo"
 description = "ReAct agent with A2A protocol [experimental]"
 base_template = "adk_a2a"
 agent_directory = "app"
