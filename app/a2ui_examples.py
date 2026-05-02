@@ -20,7 +20,7 @@ RESTAURANT_SELECTION_EXAMPLES = r"""
     "version": "v0.9",
     "createSurface": {
       "surfaceId": "restaurant-selection-surface",
-      "catalogId": "https://github.com/user/agent-a2ui-demo/restaurant_finder_catalog_definition.json"
+      "catalogId": "https://github.com/user/agent-a2ui-skill-demo/restaurant_finder_catalog_definition.json"
     }
   },
   {

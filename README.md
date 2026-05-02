@@ -170,7 +170,7 @@ sequenceDiagram
 ## Project Structure
 
 ```
-agent-a2ui-demo/
+agent-a2ui-skill-demo/
 ├── app/                        # Backend agent code
 │   ├── agent.py                # Root agent with A2UI instructions
 │   ├── agent_executor.py       # A2A executor with A2UI validation & caching

@@ -25,7 +25,7 @@ import { Catalog } from "@a2ui/web_core/v0_9";
 
 /** Catalog ID — must match the `catalogId` in the backend custom catalog file. */
 const CATALOG_ID =
-  "https://github.com/user/agent-a2ui-demo/restaurant_finder_catalog_definition.json";
+  "https://github.com/user/agent-a2ui-skill-demo/restaurant_finder_catalog_definition.json";
 
 // ---------------------------------------------------------------------------
 // Shared schema fragments
@@ -273,8 +273,8 @@ export const GoogleMap: LitComponentApi = {
 // Extend the local basicCatalog with our app-specific components so the
 // local Lit shell can resolve `WebFrameUrl` and `GoogleMap` on surfaces that
 // use the basic catalog ID.
-basicCatalog.components.set(WebFrameUrl.name, WebFrameUrl);
-basicCatalog.components.set(GoogleMap.name, GoogleMap);
+(basicCatalog.components as Map<string, LitComponentApi>).set(WebFrameUrl.name, WebFrameUrl);
+(basicCatalog.components as Map<string, LitComponentApi>).set(GoogleMap.name, GoogleMap);
 
 /**
  * Legacy custom catalog kept under the old URN so any in-flight responses

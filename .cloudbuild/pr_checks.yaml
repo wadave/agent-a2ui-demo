@@ -39,7 +39,7 @@ steps:
     args:
       - "-c"
       - |
-        /workspace/.venv/bin/pytest tests/integration/main_e2e_test.py -v
+        /workspace/.venv/bin/pytest tests/integration -v --ignore=tests/integration/remote_e2e_test.py
     env:
       - "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
       - "GOOGLE_CLOUD_LOCATION=us-central1"

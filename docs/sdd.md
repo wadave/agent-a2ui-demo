@@ -6,7 +6,7 @@
 - **Status:** Approved / Production-Ready
 - **Date:** April 24, 2026
 - **Author:** Antigravity (Senior Software Engineer)
-- **Repository:** [agent-a2ui-demo](./)
+- **Repository:** [agent-a2ui-skill-demo](./)
 
 ---
 
