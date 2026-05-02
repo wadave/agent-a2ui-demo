@@ -50,7 +50,7 @@ steps:
     args:
       - "run"
       - "deploy"
-      - "agent-a2ui-demo"
+      - "agent-a2ui-skill-demo"
       - "--image"
       - "$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/$_CONTAINER_NAME"
       - "--region"
@@ -70,7 +70,7 @@ steps:
     args:
       - "-c"
       - |
-        echo $(gcloud run services describe agent-a2ui-demo \
+        echo $(gcloud run services describe agent-a2ui-skill-demo \
         --region ${_REGION} --project ${_STAGING_PROJECT_ID} --format="value(status.url)") > staging_url.txt
 
   # Fetch ID Token
@@ -124,7 +124,7 @@ steps:
       - "builds"
       - "triggers"
       - "run"
-      - "deploy-agent-a2ui-demo"
+      - "deploy-agent-a2ui-skill-demo"
       - "--region"
       - "$LOCATION"
       - "--project"
@@ -146,8 +146,12 @@ steps:
 substitutions:
   _STAGING_PROJECT_ID: YOUR_STAGING_PROJECT_ID
   _REGION: us-central1
+  _CONTAINER_NAME: agent-a2ui-skill-demo
+  _ARTIFACT_REGISTRY_REPO_NAME: agent-a2ui-skill-demo
+  _APP_SERVICE_ACCOUNT_STAGING: agent-a2ui-skill-demo-sa@YOUR_STAGING_PROJECT_ID.iam.gserviceaccount.com # pragma: allowlist secret
+  _LOGS_BUCKET_NAME_STAGING: YOUR_STAGING_PROJECT_ID-agent-a2ui-skill-demo-logs # pragma: allowlist secret
 
-logsBucket: gs://${PROJECT_ID}-agent-a2ui-demo-logs/build-logs
+logsBucket: gs://${PROJECT_ID}-agent-a2ui-skill-demo-logs/build-logs
 options:
   substitutionOption: ALLOW_LOOSE
   defaultLogsBucketBehavior: REGIONAL_USER_OWNED_BUCKET

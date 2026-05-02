@@ -20,7 +20,7 @@ steps:
     args:
       - "run"
       - "deploy"
-      - "agent-a2ui-demo"
+      - "agent-a2ui-skill-demo"
       - "--image"
       - "$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/$_CONTAINER_NAME"
       - "--region"
@@ -36,8 +36,11 @@ steps:
 substitutions:
   _PROD_PROJECT_ID: YOUR_PROD_PROJECT_ID
   _REGION: us-central1
+  _CONTAINER_NAME: agent-a2ui-skill-demo
+  _ARTIFACT_REGISTRY_REPO_NAME: agent-a2ui-skill-demo
+  _APP_SERVICE_ACCOUNT_PROD: agent-a2ui-skill-demo-sa@YOUR_PROD_PROJECT_ID.iam.gserviceaccount.com # pragma: allowlist secret
 
-logsBucket: gs://${PROJECT_ID}-agent-a2ui-demo-logs/build-logs
+logsBucket: gs://${PROJECT_ID}-agent-a2ui-skill-demo-logs/build-logs
 options:
   substitutionOption: ALLOW_LOOSE
   defaultLogsBucketBehavior: REGIONAL_USER_OWNED_BUCKET

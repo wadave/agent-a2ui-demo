@@ -53,7 +53,7 @@ local-backend:
 local-docker: local-docker-build local-docker-run
 
 local-docker-build:
-	docker build -t agent-a2ui-demo .
+	docker build -t agent-a2ui-skill-demo .
 
 local-docker-run:
 	@echo "==============================================================================="
@@ -66,7 +66,7 @@ local-docker-run:
 		-e GOOGLE_GENAI_USE_VERTEXAI=true \
 		-e GOOGLE_APPLICATION_CREDENTIALS=/tmp/keys/adc.json \
 		-v $$HOME/.config/gcloud/application_default_credentials.json:/tmp/keys/adc.json:ro \
-		agent-a2ui-demo
+		agent-a2ui-skill-demo
 
 # ==============================================================================
 # A2A Protocol Inspector
