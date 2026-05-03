@@ -1,4 +1,5 @@
 
+-include .env
 # ==============================================================================
 # Installation & Setup
 # ==============================================================================
@@ -64,9 +65,11 @@ local-docker-run:
 		-e GOOGLE_CLOUD_PROJECT=$$(gcloud config get-value project 2>/dev/null) \
 		-e GOOGLE_CLOUD_LOCATION=global \
 		-e GOOGLE_GENAI_USE_VERTEXAI=true \
+		$(if $(WORKSPACE_USER_EMAIL),-e WORKSPACE_USER_EMAIL=$(WORKSPACE_USER_EMAIL)) \
 		-e GOOGLE_APPLICATION_CREDENTIALS=/tmp/keys/adc.json \
 		-v $$HOME/.config/gcloud/application_default_credentials.json:/tmp/keys/adc.json:ro \
 		agent-a2ui-skill-demo
+
 
 # ==============================================================================
 # A2A Protocol Inspector
@@ -137,12 +140,14 @@ deploy:
 		--region "us-central1" \
 		--no-allow-unauthenticated \
 		--no-cpu-throttling \
+		$(if $(APP_SERVICE_ACCOUNT),--service-account=$(APP_SERVICE_ACCOUNT)) \
 		--labels "created-by=adk" \
 		--update-build-env-vars "AGENT_VERSION=$(shell awk -F'"' '/^version = / {print $$2}' pyproject.toml || echo '0.0.0')" \
 		--update-env-vars \
-		"APP_URL=https://agent-a2ui-skill-demo-$$PROJECT_NUMBER.us-central1.run.app,AGENT_URL=https://agent-a2ui-skill-demo-$$PROJECT_NUMBER.us-central1.run.app,GOOGLE_CLOUD_PROJECT=$$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=true,MODEL=gemini-3-flash-preview,WORKSPACE_USER_EMAIL=davewang@wangdave.altostrat.com" \
+		"APP_URL=https://agent-a2ui-skill-demo-$$PROJECT_NUMBER.us-central1.run.app,AGENT_URL=https://agent-a2ui-skill-demo-$$PROJECT_NUMBER.us-central1.run.app,GOOGLE_CLOUD_PROJECT=$$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=true,MODEL=gemini-3-flash-preview,WORKSPACE_USER_EMAIL=$(WORKSPACE_USER_EMAIL)" \
 		$(if $(IAP),--iap) \
 		$(if $(PORT),--port=$(PORT))
+
 
 # Alias for 'make deploy' for backward compatibility
 backend: deploy

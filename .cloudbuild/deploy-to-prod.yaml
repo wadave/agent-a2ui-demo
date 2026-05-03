@@ -31,7 +31,8 @@ steps:
       - "$_APP_SERVICE_ACCOUNT_PROD"
       - "--no-allow-unauthenticated"
       - "--update-env-vars"
-      - "GOOGLE_CLOUD_PROJECT=${_PROD_PROJECT_ID},GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=true"
+      - "GOOGLE_CLOUD_PROJECT=${_PROD_PROJECT_ID},GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=true,WORKSPACE_USER_EMAIL=${_WORKSPACE_USER_EMAIL}"
+
 
 substitutions:
   _PROD_PROJECT_ID: YOUR_PROD_PROJECT_ID
@@ -39,6 +40,8 @@ substitutions:
   _CONTAINER_NAME: agent-a2ui-skill-demo
   _ARTIFACT_REGISTRY_REPO_NAME: agent-a2ui-skill-demo
   _APP_SERVICE_ACCOUNT_PROD: agent-a2ui-skill-demo-sa@YOUR_PROD_PROJECT_ID.iam.gserviceaccount.com # pragma: allowlist secret
+  _WORKSPACE_USER_EMAIL: ''
+
 
 logsBucket: gs://${PROJECT_ID}-agent-a2ui-skill-demo-logs/build-logs
 options:
