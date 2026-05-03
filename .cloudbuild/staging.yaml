@@ -61,7 +61,8 @@ steps:
       - "${_APP_SERVICE_ACCOUNT_STAGING}"
       - "--no-allow-unauthenticated"
       - "--update-env-vars"
-      - "GOOGLE_CLOUD_PROJECT=${_STAGING_PROJECT_ID},GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=true"
+      - "GOOGLE_CLOUD_PROJECT=${_STAGING_PROJECT_ID},GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=true,WORKSPACE_USER_EMAIL=${_WORKSPACE_USER_EMAIL}"
+
 
   # Fetch Staging Service URL
   - name: "gcr.io/cloud-builders/gcloud"
@@ -150,6 +151,8 @@ substitutions:
   _ARTIFACT_REGISTRY_REPO_NAME: agent-a2ui-skill-demo
   _APP_SERVICE_ACCOUNT_STAGING: agent-a2ui-skill-demo-sa@YOUR_STAGING_PROJECT_ID.iam.gserviceaccount.com # pragma: allowlist secret
   _LOGS_BUCKET_NAME_STAGING: YOUR_STAGING_PROJECT_ID-agent-a2ui-skill-demo-logs # pragma: allowlist secret
+  _WORKSPACE_USER_EMAIL: ''
+
 
 logsBucket: gs://${PROJECT_ID}-agent-a2ui-skill-demo-logs/build-logs
 options:

@@ -218,6 +218,15 @@ agent-a2ui-demo/
   echo 'GOOGLE_MAPS_API_KEY=YOUR_MAPS_API_KEY' >> .env
   ```
 
+- **Google Workspace Integration** (Optional, for GWS tools like Drive, Docs, Sheets, Slides):
+  - **Domain-Wide Delegation (DWD)**: The Service Account used by the agent must be authorized in the [Google Workspace Admin Console](https://admin.google.com) (Security → API controls → Domain Wide Delegation) with the following scopes:
+    - `https://www.googleapis.com/auth/drive`
+    - `https://www.googleapis.com/auth/documents`
+    - `https://www.googleapis.com/auth/spreadsheets`
+    - `https://www.googleapis.com/auth/presentations`
+  - **Service Account Token Creator**: The Service Account must have the `roles/iam.serviceAccountTokenCreator` role granted to itself for self-impersonation on Cloud Run.
+
+
 ## Private Package Registry
 
 By default, this project resolves all Python packages from [PyPI](https://pypi.org). If you are working in an environment that requires a private Artifact Registry (e.g., Google Cloudtop), add the following to `pyproject.toml`:
@@ -255,8 +264,13 @@ cp .env.example .env
 
 Edit the `.env` file to set your `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION`.
 
+If you are using **Google Workspace tools**, also set:
+- `WORKSPACE_USER_EMAIL`: The email of the Workspace user the agent should impersonate (via DWD).
+- `APP_SERVICE_ACCOUNT`: The Service Account to use for Cloud Run deployment (optional).
+
 > [!IMPORTANT]
-> A `.env` file is required for local testing to specify your Google Cloud Project. Without it, the application may fall back to the Public API or use default locations (like `global`) that might return a `404 Not Found` error if the model is not available in that region for Vertex AI.
+> A `.env` file is required for local testing to specify your Google Cloud Project and optional GWS settings. Without it, the application may fail to initialize Vertex AI or Workspace tools.
+
 
 
 ### 2. Build frontend and run backend
@@ -283,6 +297,13 @@ gcloud config set project <your-project-id>
 # Deploy
 make deploy
 ```
+
+> [!IMPORTANT]
+> **Google Workspace Auth on Cloud Run**:
+> - Ensure `WORKSPACE_USER_EMAIL` is set in your `.env` file before running `make deploy`, or pass it explicitly: `make deploy WORKSPACE_USER_EMAIL=user@domain.com`.
+> - If you want to use a specific Service Account, set `APP_SERVICE_ACCOUNT` in `.env`.
+> - For CI/CD (`staging.yaml` or `deploy-to-prod.yaml`), you **must** configure the `_WORKSPACE_USER_EMAIL` substitution in your Cloud Build Trigger.
+
 
 ### Set up CI/CD and infrastructure (Optional)
 
