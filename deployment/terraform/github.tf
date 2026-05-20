@@ -39,7 +39,6 @@ resource "github_repository" "repo" {
   has_issues      = true
   has_wiki        = false
   has_projects    = false
-  has_downloads   = false
 
   allow_merge_commit = true
   allow_squash_merge = true
