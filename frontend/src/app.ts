@@ -1,16 +1,10 @@
 /**
  * A2UI Chat Shell — chat-based UI for the restaurant finder agent.
  *
- * v0.9 architecture:
- *   - `v0_9.MessageProcessor([basicCatalog, customCatalog], actionHandler)`
- *     consumes incoming messages and exposes surfaces via `processor.model.surfacesMap`.
- *   - `<a2ui-surface .surface=${surface}>` renders each surface — the renderer
- *     handles all data binding, path resolution, and component dispatch internally.
- *   - The action handler receives a flat `A2uiClientAction` ({name, surfaceId,
- *     sourceComponentId, timestamp, context}); paths in button context are
- *     pre-resolved by the processor.
- *   - Theme is CSS-only (no JS theme provider in v0.9 lit).
- *   - Markdown renderer is provided through `Context.markdown`.
+ * v0.8 architecture:
+ *   - `v0_8.MessageProcessor` consumes incoming messages and exposes surfaces.
+ *   - `<a2ui-surface .surface=${surface}>` renders each surface.
+ *   - Theme is provided via A2UI_THEME context.
  */
 
 import { SignalWatcher } from "@lit-labs/signals";
@@ -21,24 +15,74 @@ import { customElement, state } from "lit/decorators.js";
 import { until } from "lit/directives/until.js";
 import { repeat } from "lit/directives/repeat.js";
 
-import * as v0_9 from "@a2ui/web_core/v0_9";
-import { basicCatalog, Context, type LitComponentApi } from "@a2ui/lit/v0_9";
+import * as v0_8 from "@a2ui/lit/v0_8";
+import { Context } from "@a2ui/lit/ui";
+import "@a2ui/lit/ui";
 import { renderMarkdown } from "@a2ui/markdown-it";
 
+// v0.8 standard components (a2ui-column, a2ui-text, etc.) read
+// `this.theme.components.X` during render. There's no built-in theme in
+// @a2ui/lit, so without a provided one every render throws
+// "Cannot read properties of undefined (reading 'components')". This
+// minimal theme satisfies the shape with empty classMaps.
+const EMPTY_CLASSMAP = {};
+const A2UI_THEME = {
+  components: {
+    AudioPlayer: EMPTY_CLASSMAP,
+    Button: EMPTY_CLASSMAP,
+    Card: EMPTY_CLASSMAP,
+    Column: EMPTY_CLASSMAP,
+    CheckBox: { container: EMPTY_CLASSMAP, element: EMPTY_CLASSMAP, label: EMPTY_CLASSMAP },
+    DateTimeInput: { container: EMPTY_CLASSMAP, element: EMPTY_CLASSMAP, label: EMPTY_CLASSMAP },
+    Divider: EMPTY_CLASSMAP,
+    Image: {
+      all: EMPTY_CLASSMAP, icon: EMPTY_CLASSMAP, avatar: EMPTY_CLASSMAP,
+      smallFeature: EMPTY_CLASSMAP, mediumFeature: EMPTY_CLASSMAP,
+      largeFeature: EMPTY_CLASSMAP, header: EMPTY_CLASSMAP,
+    },
+    Icon: EMPTY_CLASSMAP,
+    List: EMPTY_CLASSMAP,
+    Modal: { backdrop: EMPTY_CLASSMAP, element: EMPTY_CLASSMAP },
+    MultipleChoice: { container: EMPTY_CLASSMAP, element: EMPTY_CLASSMAP, label: EMPTY_CLASSMAP },
+    Row: EMPTY_CLASSMAP,
+    Slider: { container: EMPTY_CLASSMAP, element: EMPTY_CLASSMAP, label: EMPTY_CLASSMAP },
+    Tabs: {
+      container: EMPTY_CLASSMAP, element: EMPTY_CLASSMAP,
+      controls: { all: EMPTY_CLASSMAP, selected: EMPTY_CLASSMAP },
+    },
+    Text: {
+      all: EMPTY_CLASSMAP, h1: EMPTY_CLASSMAP, h2: EMPTY_CLASSMAP, h3: EMPTY_CLASSMAP,
+      h4: EMPTY_CLASSMAP, h5: EMPTY_CLASSMAP, caption: EMPTY_CLASSMAP, body: EMPTY_CLASSMAP,
+    },
+    TextField: { container: EMPTY_CLASSMAP, element: EMPTY_CLASSMAP, label: EMPTY_CLASSMAP },
+    Video: EMPTY_CLASSMAP,
+  },
+  elements: {
+    a: EMPTY_CLASSMAP, audio: EMPTY_CLASSMAP, body: EMPTY_CLASSMAP, button: EMPTY_CLASSMAP,
+    h1: EMPTY_CLASSMAP, h2: EMPTY_CLASSMAP, h3: EMPTY_CLASSMAP, h4: EMPTY_CLASSMAP,
+    h5: EMPTY_CLASSMAP, iframe: EMPTY_CLASSMAP, input: EMPTY_CLASSMAP,
+    p: EMPTY_CLASSMAP, pre: EMPTY_CLASSMAP, textarea: EMPTY_CLASSMAP, video: EMPTY_CLASSMAP,
+  },
+  markdown: {
+    p: [], h1: [], h2: [], h3: [], h4: [], h5: [],
+    ul: [], ol: [], li: [], a: [], strong: [], em: [],
+  },
+};
+
 import { RestaurantA2UIClient } from "./client.js";
-import { customCatalog } from "./google-map-component.js";
-// Side-effect import: registers Chart + Canvas on the shared basicCatalog so
-// v0.9 MessageProcessor can resolve them when surfaces arrive.
+import "./google-map-component.js";
 import "./chart-component.js";
 
 interface ChatMessage {
   role: "user" | "agent";
   text: string;
   surfaceIds?: string[];
+  stages?: string[];
   timestamp: Date;
 }
 
 const TAG = "a2ui-app-shell";
+const PROGRESS_SURFACE_PREFIX = "tool-progress-";
 
 /** Render markdown asynchronously and return a `lit-html`-friendly Promise. */
 async function renderMarkdownHtml(text: string) {
@@ -48,7 +92,9 @@ async function renderMarkdownHtml(text: string) {
 
 @customElement(TAG)
 export class A2UIShell extends SignalWatcher(LitElement) {
-  // v0.9 lit only exposes `Context.markdown` — no theme provider.
+  @provide({ context: Context.theme })
+  accessor a2uiTheme = A2UI_THEME;
+
   @provide({ context: Context.markdown })
   accessor markdownRenderer = renderMarkdown;
 
@@ -56,47 +102,150 @@ export class A2UIShell extends SignalWatcher(LitElement) {
   @state() accessor error: string | null = null;
   @state() accessor messages: ChatMessage[] = [];
 
+  // Live streaming state for the in-flight request.
+  @state() accessor stages: string[] = [];
+  @state() accessor activeSurfaceIds: string[] = [];
+  @state() accessor liveContentSurfaceIds: string[] = [];
+
+  // Theme management
+  @state() accessor isDark = false;
+  #themeOverridden = false;
+  #systemTheme?: MediaQueryList;
+
   // Bump this to force a re-render after the processor's surfacesMap mutates.
   @state() accessor renderVersion = 0;
 
   #client = new RestaurantA2UIClient();
 
-  /**
-   * Single processor for the lifetime of the shell. Surfaces accumulate in
-   * `processor.model.surfacesMap`; we tag each chat message with the surface
-   * IDs that came in with that response so we can render them in-place.
-   */
-  #processor = new v0_9.MessageProcessor<LitComponentApi>(
-    [basicCatalog, customCatalog],
-    async (action: v0_9.A2uiClientAction): Promise<void> => {
-      // Show the action as a synthetic user message in the transcript.
-      this.messages = [
-        ...this.messages,
-        {
-          role: "user",
-          text: `Selected: ${action.name}`,
-          timestamp: new Date(),
-        },
-      ];
-      this.scrollToBottom();
+  #processor = v0_8.Data.createSignalA2uiMessageProcessor();
 
-      // Wire format expected by app/agent_executor.py.
-      await this.sendAndProcess({
-        userAction: {
-          name: action.name,
-          surfaceId: action.surfaceId,
-          sourceComponentId: action.sourceComponentId,
-          timestamp: action.timestamp,
-          context: action.context,
-        },
-      });
-    },
-  );
+  #surfaceStyleSheet = (() => {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(`
+      a2ui-row {
+        align-items: stretch !important;
+        flex-wrap: wrap !important;
+        gap: 12px !important;
+      }
+      a2ui-card {
+        display: flex !important;
+        flex-direction: column !important;
+        border: 1px solid var(--ge-border) !important;
+        background: var(--ge-bg-alt) !important;
+        border-radius: 12px !important;
+        padding: 16px !important;
+        box-shadow: var(--ge-shadow) !important;
+        transition: transform 0.2s, box-shadow 0.2s !important;
+        height: 100% !important;
+      }
+      a2ui-card:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.08) !important;
+      }
+      a2ui-button button {
+        border: 1px solid var(--ge-blue) !important;
+        color: var(--ge-blue) !important;
+        background: transparent !important;
+        border-radius: 20px !important;
+        padding: 6px 14px !important;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        cursor: pointer !important;
+        transition: all 0.15s !important;
+      }
+      a2ui-button button:hover {
+        background: var(--ge-blue-bg) !important;
+      }
+      a2ui-button.primary button {
+        background: var(--ge-blue) !important;
+        color: white !important;
+        border: 1px solid var(--ge-blue) !important;
+      }
+      a2ui-button.primary button:hover {
+        background: var(--ge-blue-hover) !important;
+      }
+    `);
+    return sheet;
+  })();
+
+  connectedCallback() {
+    super.connectedCallback();
+    this.#systemTheme = window.matchMedia?.("(prefers-color-scheme: dark)");
+    this.#applyTheme(this.#systemTheme?.matches ?? false);
+    this.#systemTheme?.addEventListener?.("change", this.#onSystemThemeChange);
+  }
+
+  disconnectedCallback() {
+    this.#systemTheme?.removeEventListener?.("change", this.#onSystemThemeChange);
+    super.disconnectedCallback();
+  }
+
+  #onSystemThemeChange = (e: MediaQueryListEvent) => {
+    if (!this.#themeOverridden) this.#applyTheme(e.matches);
+  };
+
+  #applyTheme(dark: boolean) {
+    document.body.classList.toggle("dark", dark);
+    document.body.classList.toggle("light", !dark);
+    this.isDark = dark;
+  }
+
+  private toggleTheme() {
+    this.#themeOverridden = true;
+    this.#applyTheme(!this.isDark);
+  }
+
+  private async onA2uiAction(evt: CustomEvent<any>) {
+    const detail = evt.detail;
+    const action = detail?.action || detail;
+    if (!action) return;
+    const actionName = action.name || action.actionName || detail?.actionName;
+    if (!actionName) return;
+
+    const resolvedContext: Record<string, any> = {};
+    const context = action.context;
+    if (context) {
+      if (Array.isArray(context)) {
+        for (const item of context) {
+          if (item.key && item.value) {
+            const val =
+              item.value.literalString ??
+              item.value.literalNumber ??
+              item.value.literalBoolean ??
+              item.value;
+            resolvedContext[item.key] = val;
+          }
+        }
+      } else if (typeof context === "object") {
+        Object.entries(context).forEach(([k, v]: [string, any]) => {
+          resolvedContext[k] = v?.literalString ?? v?.literalNumber ?? v?.literalBoolean ?? v;
+        });
+      }
+    }
+
+    this.messages = [
+      ...this.messages,
+      {
+        role: "user",
+        text: `Selected: ${actionName}`,
+        timestamp: new Date(),
+      },
+    ];
+    this.scrollToBottom();
+
+    await this.sendAndProcess({
+      userAction: {
+        actionName,
+        sourceComponentId: detail.sourceComponentId,
+        timestamp: new Date().toISOString(),
+        context: resolvedContext,
+      },
+    }, { skipDisplay: true });
+  }
 
   static styles = css`
     * { box-sizing: border-box; }
 
-    /* Material Symbols — global class doesn't cross shadow DOM boundary */
     .g-icon {
       font-family: "Material Symbols Outlined";
       font-weight: normal;
@@ -115,7 +264,6 @@ export class A2UIShell extends SignalWatcher(LitElement) {
       font-variation-settings: "FILL" 1, "wght" 500;
     }
 
-    /* GE color tokens */
     :host {
       --ge-bg:          light-dark(#ffffff, #1e1e1e);
       --ge-bg-alt:      light-dark(#f8f9fa, #2a2a2a);
@@ -133,7 +281,6 @@ export class A2UIShell extends SignalWatcher(LitElement) {
       --ge-shadow:      light-dark(0 1px 3px rgba(60,64,67,.15),
                                    0 1px 3px rgba(0,0,0,.4));
 
-      /* a2ui CSS tokens consumed by basicCatalog components */
       --a2ui-color-primary: var(--ge-blue);
       --a2ui-color-on-primary: #ffffff;
       --a2ui-color-secondary: var(--ge-bg-alt);
@@ -232,6 +379,7 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     .msg-row.agent { justify-content: flex-start; }
     .msg { display: flex; gap: 12px; max-width: min(680px, 90%); }
     .msg.user { flex-direction: row-reverse; }
+
     .avatar {
       width: 32px; height: 32px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
@@ -240,7 +388,7 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     .msg.user .avatar { background: var(--ge-blue); color: white; font-size: 14px; }
     .msg.agent .avatar { background: transparent; }
 
-    .msg-content { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .msg-content { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
     .sender-name {
       font-size: 12px; font-weight: 500;
       color: var(--ge-text-muted); padding: 0 2px;
@@ -248,8 +396,17 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     .bubble {
       padding: 10px 16px; border-radius: 18px;
       line-height: 1.6; font-size: 16px;
-      word-break: break-word; white-space: pre-wrap;
+      word-break: break-word;
     }
+    .bubble p { margin: 0; }
+    .bubble a { color: var(--ge-blue); text-decoration: underline; }
+    .bubble a:hover { opacity: 0.8; }
+    .bubble p + p { margin-top: 0.5em; }
+    .bubble > :first-child { margin-top: 0; }
+    .bubble > :last-child { margin-bottom: 0; }
+    .bubble ul, .bubble ol { margin: 0.3em 0; padding-left: 1.2em; }
+    .bubble pre { margin: 0.4em 0; }
+
     .msg.user .bubble {
       background: var(--ge-user-bg); color: var(--ge-user-text);
       border-radius: 18px 18px 4px 18px; font-weight: 400;
@@ -257,8 +414,6 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     .msg.agent .bubble {
       background: transparent; color: var(--ge-text); padding: 0 2px;
     }
-    .bubble a { color: var(--ge-blue); text-decoration: underline; }
-    .bubble a:hover { opacity: 0.8; }
     .msg-time {
       font-size: 11px; color: var(--ge-text-muted); padding: 0 2px;
     }
@@ -275,6 +430,11 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     .typing-row { display: flex; padding: 8px 24px; animation: fadeIn 0.25s ease; }
     .typing { display: flex; gap: 12px; align-items: center; }
     .typing .avatar { background: transparent; width: 32px; height: 32px; }
+    .typing-content {
+      display: flex; flex-direction: column; gap: 6px;
+      min-width: min(520px, calc(100vw - 96px));
+      max-width: min(850px, calc(100vw - 96px));
+    }
     .typing-dots {
       display: flex; align-items: center; gap: 5px;
       padding: 12px 16px;
@@ -287,6 +447,75 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     }
     .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
     .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+    /* Live thinking widget / reasoning panel styling */
+    .surface-container.live {
+      max-width: 560px;
+      max-height: none;
+      margin-top: 8px;
+      padding: 10px;
+    }
+
+    .stages {
+      display: flex; flex-direction: column; gap: 4px;
+      padding: 10px 14px;
+      background: var(--ge-bg-alt); border-radius: 12px;
+      min-width: 280px;
+    }
+    .stage {
+      font-size: 13px; line-height: 1.4;
+      animation: fadeIn 0.2s ease;
+      border-radius: 6px;
+    }
+    .stage-summary {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 6px;
+      cursor: pointer; user-select: none; list-style: none;
+      border-radius: 6px;
+    }
+    .stage-summary::-webkit-details-marker { display: none; }
+    .stage-summary::after {
+      content: "▾"; margin-left: auto; font-size: 10px;
+      color: var(--ge-text-muted); transition: transform 0.15s;
+    }
+    .stage:not([open]) .stage-summary::after { transform: rotate(-90deg); }
+    .stage-summary:hover { background: var(--ge-border); }
+    .stage-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 16px; height: 16px; font-size: 12px; font-weight: 700;
+    }
+    .stage.done .stage-icon { color: #34a853; }
+    .stage.done .stage-text { color: var(--ge-text-muted); }
+    .stage.active .stage-icon { color: var(--ge-blue); }
+    .stage.active .stage-text { color: var(--ge-text); font-weight: 500; }
+    .stage-detail {
+      padding: 4px 12px 8px 30px;
+      font-size: 12px; line-height: 1.5; color: var(--ge-text-muted);
+    }
+
+    .reasoning {
+      margin: 4px 0 8px;
+      border: 1px solid var(--ge-border);
+      border-radius: 10px;
+      background: var(--ge-bg-alt);
+      overflow: hidden;
+    }
+    .reasoning-summary {
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 12px;
+      cursor: pointer; font-size: 12px; color: var(--ge-text-muted);
+      user-select: none; list-style: none;
+    }
+    .reasoning-summary::-webkit-details-marker { display: none; }
+    .reasoning-summary::after {
+      content: "▾"; margin-left: auto; font-size: 10px;
+      transition: transform 0.15s;
+    }
+    .reasoning:not([open]) .reasoning-summary::after { transform: rotate(-90deg); }
+    .reasoning-summary:hover { background: var(--ge-border); }
+    .reasoning-stages {
+      padding: 8px 12px 10px; background: transparent; border-radius: 0;
+    }
 
     .input-area {
       flex-shrink: 0; padding: 12px 24px 20px;
@@ -349,11 +578,11 @@ export class A2UIShell extends SignalWatcher(LitElement) {
         <img src="/gemini-icon.svg" width="28" height="28" alt="Gemini" />
         <div class="header-title">
           <h1>Restaurant Finder</h1>
-          <div class="subtitle">Agent · A2UI v0.9</div>
+          <div class="subtitle">Agent · A2UI v0.8</div>
         </div>
         <div class="header-spacer"></div>
         <button class="theme-toggle" @click=${this.toggleTheme}>
-          <span class="g-icon">dark_mode</span>
+          <span class="g-icon">${this.isDark ? "dark_mode" : "light_mode"}</span>
         </button>
       </div>
 
@@ -362,7 +591,13 @@ export class A2UIShell extends SignalWatcher(LitElement) {
           ? this.renderWelcome()
           : nothing}
         ${this.messages.map((m) => this.renderMessage(m))}
-        ${this.requesting ? this.renderTyping() : nothing}
+        ${this.requesting
+          ? this.stages.length > 0 ||
+            this.activeSurfaceIds.length > 0 ||
+            this.liveContentSurfaceIds.length > 0
+            ? this.renderStages()
+            : this.renderTyping()
+          : nothing}
       </div>
 
       ${this.error
@@ -414,8 +649,6 @@ export class A2UIShell extends SignalWatcher(LitElement) {
       minute: "2-digit",
     });
 
-    // Force render dependency on renderVersion so the surfaces re-render
-    // whenever processor state mutates.
     void this.renderVersion;
 
     return html`
@@ -427,22 +660,80 @@ export class A2UIShell extends SignalWatcher(LitElement) {
               : html`<img src="/gemini-icon.svg" width="32" height="32" alt="Gemini" />`}
           </div>
           <div class="msg-content">
-            <div class="sender-name">${msg.role === "user" ? "You" : "Gemini"}</div>
-            <div class="bubble">
-              ${until(renderMarkdownHtml(msg.text), html`${msg.text}`)}
-            </div>
+            ${msg.role === "agent"
+              ? html`<div class="sender-name">Gemini</div>`
+              : nothing}
+            ${this.renderActivity(msg)}
+            ${msg.text && msg.text.trim()
+              ? html`<div class="bubble">
+                  ${msg.role === "user"
+                    ? msg.text
+                    : until(renderMarkdownHtml(msg.text), html`${msg.text}`)}
+                </div>`
+              : nothing}
             ${msg.surfaceIds && msg.surfaceIds.length > 0
               ? this.renderSurfaces(msg.surfaceIds)
               : nothing}
-            <div class="msg-time">${time}</div>
+            ${msg.role === "agent"
+              ? html`<div class="msg-time">${time}</div>`
+              : nothing}
           </div>
         </div>
       </div>
     `;
   }
 
-  private renderSurfaces(surfaceIds: string[]) {
-    const surfacesMap = this.#processor.model.surfacesMap;
+  #surfaceObservers = new WeakMap<Element, MutationObserver>();
+
+  updated() {
+    const surfaces = this.renderRoot.querySelectorAll("a2ui-surface");
+    for (const el of surfaces) {
+      const sr = (el as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot;
+      if (!sr) continue;
+      this.#adoptIntoAllShadowRoots(sr);
+      requestAnimationFrame(() => this.#adoptIntoAllShadowRoots(sr));
+      setTimeout(() => this.#adoptIntoAllShadowRoots(sr), 120);
+      if (!this.#surfaceObservers.has(el)) {
+        const obs = new MutationObserver(() => this.#adoptIntoAllShadowRoots(sr));
+        obs.observe(sr, { childList: true, subtree: true });
+        this.#surfaceObservers.set(el, obs);
+      }
+    }
+  }
+
+  #adoptIntoAllShadowRoots(root: ShadowRoot | Element) {
+    const sheet = this.#surfaceStyleSheet;
+    const adopt = (sr: ShadowRoot) => {
+      if (!sr.adoptedStyleSheets.includes(sheet)) {
+        sr.adoptedStyleSheets = [...sr.adoptedStyleSheets, sheet];
+      }
+    };
+    if (root instanceof ShadowRoot) adopt(root);
+    const queue: (Element | ShadowRoot)[] = [root];
+    while (queue.length) {
+      const node = queue.shift()!;
+      const children = node instanceof Element ? [...node.children] : [...node.children];
+      for (const c of children) {
+        const childShadow = (c as HTMLElement).shadowRoot;
+        if (childShadow) {
+          adopt(childShadow);
+          queue.push(childShadow);
+        }
+        queue.push(c);
+      }
+    }
+  }
+
+  private renderActivity(msg: ChatMessage) {
+    if (msg.role !== "agent") return nothing;
+    if (msg.stages && msg.stages.length > 0) {
+      return this.renderReasoningDetails(msg.stages, false);
+    }
+    return nothing;
+  }
+
+  private renderSurfaces(surfaceIds: string[], live = false) {
+    const surfacesMap = this.#processor.getSurfaces();
     const surfaces = surfaceIds
       .map((id) => [id, surfacesMap.get(id)] as const)
       .filter(([, s]) => s != null);
@@ -453,12 +744,50 @@ export class A2UIShell extends SignalWatcher(LitElement) {
       ${repeat(
         surfaces,
         ([id]) => id,
-        ([, surface]) => html`
-          <div class="surface-container">
-            <a2ui-surface .surface=${surface}></a2ui-surface>
+        ([id, surface]) => html`
+          <div class="surface-container ${live ? "live" : ""}">
+            <a2ui-surface
+              .surfaceId=${id}
+              .surface=${surface}
+              .processor=${this.#processor}
+              .enableCustomElements=${true}
+              @a2uiaction=${this.onA2uiAction}
+            ></a2ui-surface>
           </div>
         `,
       )}
+    `;
+  }
+
+  private renderReasoningDetails(stages: string[], open = true) {
+    return html`
+      <details class="reasoning" ?open=${open}>
+        <summary class="reasoning-summary">
+          <span class="g-icon" style="font-size:14px">psychology</span>
+          <span>Thought for ${stages.length} step${stages.length === 1 ? "" : "s"}</span>
+        </summary>
+        <div class="stages reasoning-stages">
+          ${stages.map((s) => this.renderStage(s, false))}
+        </div>
+      </details>
+    `;
+  }
+
+  private renderStage(stageText: string, isActive: boolean) {
+    const nl = stageText.indexOf("\n");
+    const title = nl === -1 ? stageText : stageText.slice(0, nl);
+    const detail = nl === -1 ? "" : stageText.slice(nl + 1).trim();
+    const stateClass = isActive ? "active" : "done";
+    const icon = isActive ? "•" : "✓";
+
+    return html`
+      <details class="stage ${stateClass}">
+        <summary class="stage-summary">
+          <span class="stage-icon">${icon}</span>
+          <span class="stage-text">${title}</span>
+        </summary>
+        ${detail ? html`<div class="stage-detail">${detail}</div>` : nothing}
+      </details>
     `;
   }
 
@@ -477,10 +806,35 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     `;
   }
 
-  private toggleTheme() {
-    const cs = getComputedStyle(document.body).colorScheme;
-    document.body.classList.toggle("light", cs === "dark");
-    document.body.classList.toggle("dark", cs !== "dark");
+  private renderStages() {
+    void this.renderVersion;
+    const progressSurfaceIds = this.activeSurfaceIds.length > 0
+      ? [this.activeSurfaceIds[this.activeSurfaceIds.length - 1]]
+      : [];
+    const liveSurfaceIds = [
+      ...progressSurfaceIds,
+      ...this.liveContentSurfaceIds,
+    ];
+    return html`
+      <div class="typing-row">
+        <div class="typing">
+          <div class="avatar">
+            <img src="/gemini-icon.svg" width="32" height="32" alt="Gemini" />
+          </div>
+          <div class="typing-content">
+            ${liveSurfaceIds.length > 0
+              ? this.renderSurfaces(liveSurfaceIds, true)
+              : html`
+                  <div class="stages">
+                    ${this.stages.map((s, i) =>
+                      this.renderStage(s, i === this.stages.length - 1),
+                    )}
+                  </div>
+                `}
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   private async quickSend(text: string) {
@@ -504,8 +858,11 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     });
   }
 
-  private async sendAndProcess(message: string | Record<string, unknown>) {
-    if (typeof message === "string") {
+  private async sendAndProcess(
+    message: string | Record<string, unknown>,
+    options: { skipDisplay?: boolean } = {},
+  ) {
+    if (typeof message === "string" && !options.skipDisplay) {
       this.messages = [
         ...this.messages,
         { role: "user", text: message, timestamp: new Date() },
@@ -514,32 +871,43 @@ export class A2UIShell extends SignalWatcher(LitElement) {
 
     this.requesting = true;
     this.error = null;
+    this.stages = [];
+    this.activeSurfaceIds = [];
+    this.liveContentSurfaceIds = [];
     this.scrollToBottom();
 
-    try {
-      const response = await this.#client.send(message);
+    const existingIds = new Set(this.#processor.getSurfaces().keys());
 
-      // Snapshot existing surface IDs so we can identify which ones arrive
-      // with this response (= the ones to display under this agent message).
-      const existingIds = new Set(this.#processor.model.surfacesMap.keys());
+    try {
+      const response = await this.#client.send(message, {
+        onStage: (text: string) => {
+          this.stages = [...this.stages, text];
+          this.scrollToBottom();
+        },
+        onA2UIMessage: (a2uiMessages) => {
+          this.processLiveA2UI(a2uiMessages);
+          this.scrollToBottom();
+        },
+      });
 
       if (response.a2uiMessages.length > 0) {
-        this.#processor.processMessages(
-          response.a2uiMessages as unknown as v0_9.A2uiMessage[],
-        );
+        this.#processor.processMessages(response.a2uiMessages as any);
       }
 
-      const newSurfaceIds = [...this.#processor.model.surfacesMap.keys()].filter(
-        (id) => !existingIds.has(id),
+      const newSurfaceIds = [...this.#processor.getSurfaces().keys()].filter(
+        (id) => !existingIds.has(id) && !id.startsWith(PROGRESS_SURFACE_PREFIX),
       );
-
+      const contentIds = [
+        ...new Set([...this.liveContentSurfaceIds, ...newSurfaceIds]),
+      ];
       this.renderVersion++;
       this.messages = [
         ...this.messages,
         {
           role: "agent",
-          text: response.text || "Here you go:",
-          surfaceIds: newSurfaceIds.length > 0 ? newSurfaceIds : undefined,
+          text: response.text || "",
+          surfaceIds: contentIds.length > 0 ? contentIds : undefined,
+          stages: this.stages.length > 0 ? [...this.stages] : undefined,
           timestamp: new Date(),
         },
       ];
@@ -548,7 +916,44 @@ export class A2UIShell extends SignalWatcher(LitElement) {
       this.error = `${err}`;
     } finally {
       this.requesting = false;
+      this.stages = [];
+      this.activeSurfaceIds = [];
+      this.liveContentSurfaceIds = [];
       this.scrollToBottom();
     }
+  }
+
+  private processLiveA2UI(a2uiMessages: Array<Record<string, unknown>>) {
+    if (a2uiMessages.length === 0) return;
+
+    const idsFromMessages = this.extractSurfaceIds(a2uiMessages);
+    const before = new Set(this.#processor.getSurfaces().keys());
+    this.#processor.processMessages(a2uiMessages as any);
+    const after = this.#processor.getSurfaces();
+    const newIds = [...after.keys()].filter((id) => !before.has(id));
+    const ids = [...new Set([...idsFromMessages, ...newIds])].filter((id) =>
+      after.has(id),
+    );
+
+    for (const id of ids) {
+      if (id.startsWith(PROGRESS_SURFACE_PREFIX)) {
+        this.activeSurfaceIds = [id];
+      } else if (!this.liveContentSurfaceIds.includes(id)) {
+        this.liveContentSurfaceIds = [...this.liveContentSurfaceIds, id];
+      }
+    }
+    this.renderVersion++;
+  }
+
+  private extractSurfaceIds(a2uiMessages: Array<Record<string, unknown>>) {
+    const ids: string[] = [];
+    for (const msg of a2uiMessages) {
+      for (const key of ["beginRendering", "surfaceUpdate", "dataModelUpdate"]) {
+        const update = msg[key] as Record<string, unknown> | undefined;
+        const surfaceId = update?.["surfaceId"];
+        if (typeof surfaceId === "string") ids.push(surfaceId);
+      }
+    }
+    return ids;
   }
 }

@@ -162,7 +162,7 @@ Your task is to analyze the user's request, fetch the necessary data, select the
     * Use **`find_restaurants`** for searching restaurants by query. Always pass the complete location context.
     * Use **`get_directions`** for driving directions between two locations.
     * For **Map View**: you do NOT need to call any tool. Use the restaurant's name and address from the conversation context to build the `WebFrameUrl` URL directly.
-    * **Quality Check**: After calling `find_restaurants`, inspect the JSON output. Every restaurant MUST have a valid rating (stars) and a non-empty description. If any restaurant only has an address, do NOT display it. Instead, call `find_restaurants` again to find alternative restaurants that have complete details.
+    * **Quality Check**: After calling `find_restaurants`, inspect the JSON output. Every restaurant should have a valid rating (stars) and a non-empty description. If a restaurant lacks a rating or a description, fill in a default value (e.g., `★★★★☆` or a friendly description) rather than retrying or calling the tool again, to prevent loops.
 
 3.  **Select Example:** Based on the intent, choose the correct example.
     * **Restaurant List** -> Use `---BEGIN RESTAURANT_SELECTION EXAMPLE---`. (Never use the Map example for lists).

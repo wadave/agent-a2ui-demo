@@ -14,10 +14,16 @@
 
 """Unit tests for agent_executor post-processing helpers."""
 
+from types import SimpleNamespace
+
 from a2a.types import DataPart, Part
 from a2ui.a2a.parts import create_a2ui_part
 
-from app.agent_executor import _process_a2ui_parts, _repair_catalog_id
+from app.agent_executor import (
+    _MapsKeyEventConverter,
+    _process_a2ui_parts,
+    _repair_catalog_id,
+)
 
 VALID_CATALOG_ID = "https://a2ui.org/specification/v0_9/basic_catalog.json"
 HALLUCINATED_CATALOG_ID = "a2ui_restaurant_finder:v0_9"
@@ -97,3 +103,49 @@ def test_process_parts_passes_through_non_a2ui_parts():
     plain_part = Part(root=DataPart(data={"foo": "bar"}, metadata={"mimeType": "x"}))
     out = _process_a2ui_parts([plain_part], valid_catalog_id=VALID_CATALOG_ID)
     assert out == [plain_part]
+
+
+def _tool_call_event(name="find_restaurants", call_id="call-1"):
+    return SimpleNamespace(
+        content=SimpleNamespace(
+            parts=[
+                SimpleNamespace(
+                    text=None,
+                    function_call=SimpleNamespace(name=name, id=call_id),
+                    function_response=None,
+                )
+            ]
+        ),
+        is_final_response=lambda: False,
+    )
+
+
+def _tool_response_event(name="find_restaurants", call_id="call-1"):
+    return SimpleNamespace(
+        content=SimpleNamespace(
+            parts=[
+                SimpleNamespace(
+                    text=None,
+                    function_call=None,
+                    function_response=SimpleNamespace(name=name, id=call_id),
+                )
+            ]
+        ),
+        is_final_response=lambda: False,
+    )
+
+
+def test_progress_deduplicates_replayed_tool_call_event():
+    """Repeated streaming events for the same tool call should not add steps."""
+    conv = _MapsKeyEventConverter()
+    steps = []
+
+    conv._advance_steps(_tool_call_event(), steps)
+    conv._advance_steps(_tool_call_event(), steps)
+    conv._advance_steps(_tool_response_event(), steps)
+
+    assert len(steps) == 1
+    assert steps[0]["title"] == "Searching for restaurants"
+    assert steps[0]["state"] == "done"
+    assert len(steps[0]["tools"]) == 1
+    assert steps[0]["tools"][0]["state"] == "done"
