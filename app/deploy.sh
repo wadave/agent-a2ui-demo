@@ -6,13 +6,17 @@ set -e
 # --- Configuration ---
 if [[ "$#" -lt 2 ]]; then
     echo "Usage: $0   [MODEL_NAME]"
-    echo "MODEL_NAME defaults to 'gemini-3-flash-preview'."
+    echo "MODEL_NAME is optional and defaults to the configured default in config.py."
     exit 1
 fi
 
 PROJECT_ID=$1
 SERVICE_NAME=$2
-MODEL_NAME=${3:-"gemini-3-flash-preview"}
+MODEL_NAME=${3}
+ENV_VARS="GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$VERTEX_LOCATION,GOOGLE_GENAI_USE_VERTEXAI=TRUE"
+if [[ -n "$MODEL_NAME" ]]; then
+    ENV_VARS="$ENV_VARS,MODEL=$MODEL_NAME"
+fi
 
 # Cloud Run region (where the container runs).
 REGION="us-central1"
@@ -41,7 +45,7 @@ gcloud run deploy "$SERVICE_NAME" \
 --region "$REGION" \
 --memory "$MEMORY" \
 --no-allow-unauthenticated \
---set-env-vars=GOOGLE_CLOUD_PROJECT="$PROJECT_ID",GOOGLE_CLOUD_LOCATION="$VERTEX_LOCATION",GOOGLE_GENAI_USE_VERTEXAI=TRUE,MODEL="$MODEL_NAME"
+--set-env-vars="$ENV_VARS"
 
 echo "Deployment complete."
 echo "Service URL: $(gcloud run services describe "$SERVICE_NAME" \

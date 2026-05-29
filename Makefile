@@ -1,5 +1,6 @@
 
 -include .env
+comma := ,
 # ==============================================================================
 # Installation & Setup
 # ==============================================================================
@@ -144,7 +145,7 @@ deploy:
 		--labels "created-by=adk" \
 		--update-build-env-vars "AGENT_VERSION=$(shell awk -F'"' '/^version = / {print $$2}' pyproject.toml || echo '0.0.0')" \
 		--update-env-vars \
-		"APP_URL=https://agent-a2ui-skill-demo-$$PROJECT_NUMBER.us-central1.run.app,AGENT_URL=https://agent-a2ui-skill-demo-$$PROJECT_NUMBER.us-central1.run.app,GOOGLE_CLOUD_PROJECT=$$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=true,MODEL=gemini-3-flash-preview,WORKSPACE_USER_EMAIL=$(WORKSPACE_USER_EMAIL)" \
+		"APP_URL=https://agent-a2ui-skill-demo-$$PROJECT_NUMBER.us-central1.run.app,AGENT_URL=https://agent-a2ui-skill-demo-$$PROJECT_NUMBER.us-central1.run.app,GOOGLE_CLOUD_PROJECT=$$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=true$(if $(MODEL),$(comma)MODEL=$(MODEL)),WORKSPACE_USER_EMAIL=$(WORKSPACE_USER_EMAIL)" \
 		$(if $(IAP),--iap) \
 		$(if $(PORT),--port=$(PORT))
 
