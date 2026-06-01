@@ -177,7 +177,7 @@ def _progress_bar_text(pct: int, *, failed: bool = False) -> str:
     return f"{fill_char * filled}{'░' * (_PROGRESS_CELLS - filled)}  {pct}%"
 
 
-_TOOL_MARKERS = {"running": "•", "done": "✓", "failed": "✗"}
+_TOOL_MARKERS = {"pending": "○", "running": "•", "done": "✓", "failed": "✗"}
 _INDENT = " " * 4  # noqa: RUF001 - NBSP is intentional
 
 _TOOL_LABELS = {
@@ -258,6 +258,7 @@ _TOOL_STEP_TITLES = {
 
 PROGRESS_OPT_IN_KEY = "system:a2ui_progress"
 PROGRESS_STAGE_META = "a2uiProgressStage"
+PROGRESS_STEPS_META = "a2uiProgressSteps"
 PROGRESS_SURFACE_PREFIX = "tool-progress-"
 
 
@@ -275,6 +276,56 @@ def _tool_progress(steps: list[dict[str, Any]]) -> tuple[int, int, int]:
     done = sum(1 for s in steps for t in s.get("tools", []) if t.get("state") == "done")
     pct = round(done / total * 100) if total else 0
     return done, total, pct
+
+
+def _public_progress_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return compact, UI-safe progress state for the frontend thinking panel."""
+    public_steps: list[dict[str, Any]] = []
+    for step in steps:
+        tools = [
+            {
+                "label": _prettify_tool(tool.get("name", "")),
+                "state": tool.get("state", "running"),
+            }
+            for tool in step.get("tools", [])
+        ]
+        public_steps.append(
+            {
+                "title": step.get("title", "Working"),
+                "detail": step.get("detail"),
+                "state": step.get("state", "pending"),
+                "tools": tools,
+                "completedTools": sum(1 for tool in tools if tool["state"] == "done"),
+                "totalTools": len(tools),
+            }
+        )
+    return public_steps
+
+
+def _append_pending_dashboard_step(steps: list[dict[str, Any]]) -> None:
+    """Show the dashboard step before the short render tool call starts."""
+    if any(
+        tool.get("name") == "send_a2ui_json_to_client"
+        for step in steps
+        for tool in step.get("tools", [])
+    ):
+        return
+    title, detail = _TOOL_STEP_TITLES["send_a2ui_json_to_client"]
+    steps.append(
+        {
+            "title": title,
+            "detail": detail,
+            "state": "pending",
+            "call_key": None,
+            "tools": [
+                {
+                    "name": "send_a2ui_json_to_client",
+                    "id": None,
+                    "state": "pending",
+                }
+            ],
+        }
+    )
 
 
 def _tool_progress_messages(
@@ -848,6 +899,8 @@ class _MapsKeyEventConverter(A2uiEventConverter):
                     ],
                 }
             )
+            if function_calls[0]["name"] == "find_restaurants":
+                _append_pending_dashboard_step(steps)
             stage = f"{title}...\n{detail}"
 
         if has_text and not function_calls and event.is_final_response():
@@ -878,31 +931,44 @@ class _MapsKeyEventConverter(A2uiEventConverter):
             },
         )
 
-        stage = self._advance_steps(event, progress["steps"])
         steps = progress["steps"]
         is_final = bool(
             getattr(event, "is_final_response", None) and event.is_final_response()
         )
+        stage: str | None = None
+        if opt_in and not steps and not is_final:
+            steps.append(
+                {
+                    "title": "Understanding request",
+                    "detail": "Analyzing your message and choosing the next action.",
+                    "state": "active",
+                    "call_key": None,
+                    "tools": [],
+                }
+            )
+            stage = (
+                "Understanding request...\n"
+                "Analyzing your message and choosing the next action."
+            )
+
+        advanced_stage = self._advance_steps(event, steps)
+        if advanced_stage:
+            stage = advanced_stage
         all_done = bool(steps) and all(s["state"] in ("done", "failed") for s in steps)
 
-        ui_version = invocation_context.session.state.get(
-            "active_ui_version", VERSION_0_8
-        )
-
         if opt_in and stage and steps:
-            extra_parts = _progress_status_parts(
-                progress["surface_id"],
-                steps,
-                stage,
-                include_begin=not progress["begin_sent"],
-                done=all_done,
-                include_a2ui=True,
-                ui_version=ui_version,
-            )
             progress["begin_sent"] = True
-            extra_parts[0] = Part(
-                root=TextPart(text=stage, metadata={PROGRESS_STAGE_META: True})
-            )
+            extra_parts = [
+                Part(
+                    root=TextPart(
+                        text=stage,
+                        metadata={
+                            PROGRESS_STAGE_META: True,
+                            PROGRESS_STEPS_META: _public_progress_steps(steps),
+                        },
+                    )
+                )
+            ]
             for a2a_event in a2a_events:
                 status = getattr(a2a_event, "status", None)
                 msg = getattr(status, "message", None)
@@ -912,7 +978,25 @@ class _MapsKeyEventConverter(A2uiEventConverter):
                     and msg is not None
                 ):
                     msg.parts = (msg.parts or []) + extra_parts
+                    extra_parts = []
                     break
+            if extra_parts:
+                a2a_events.insert(
+                    0,
+                    TaskStatusUpdateEvent(
+                        task_id=task_id,
+                        context_id=context_id,
+                        final=False,
+                        status=TaskStatus(
+                            state=TaskState.working,
+                            message=Message(
+                                message_id=uuid.uuid4().hex,
+                                role=Role.agent,
+                                parts=extra_parts,
+                            ),
+                        ),
+                    ),
+                )
         elif not opt_in and is_final and steps:
             has_working_answer = any(
                 getattr(getattr(e, "status", None), "state", None) == TaskState.working

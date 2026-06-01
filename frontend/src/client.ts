@@ -24,6 +24,7 @@ const A2UI_MESSAGE_KEYS = [
 
 // Backend tags thinking-step narration TextParts with this metadata flag.
 const PROGRESS_STAGE_META = "a2uiProgressStage";
+const PROGRESS_STEPS_META = "a2uiProgressSteps";
 
 export interface A2UIMessage {
   [key: string]: unknown;
@@ -32,7 +33,7 @@ export interface A2UIMessage {
 export interface SendOptions {
   /** Called for each working-state status update that carries a tagged
    *  thinking-step (stage) text part. */
-  onStage?: (text: string) => void;
+  onStage?: (text: string, progressSteps?: unknown[]) => void;
   /** Called for A2UI data parts that arrive on working status updates before
    *  the final artifact (live progress widget + live content surfaces). */
   onA2UIMessage?: (messages: A2UIMessage[]) => void;
@@ -161,7 +162,7 @@ export class RestaurantA2UIClient {
                 typeof p["text"] === "string"
               ) {
                 if (this.#isStagePart(p)) {
-                  options.onStage(p["text"]);
+                  options.onStage(p["text"], this.#extractProgressSteps(p));
                 } else {
                   textContent += p["text"] + "\n";
                 }
@@ -242,6 +243,12 @@ export class RestaurantA2UIClient {
   #isStagePart(part: Record<string, unknown>): boolean {
     const meta = part["metadata"] as Record<string, unknown> | undefined;
     return Boolean(meta && meta[PROGRESS_STAGE_META]);
+  }
+
+  #extractProgressSteps(part: Record<string, unknown>): unknown[] | undefined {
+    const meta = part["metadata"] as Record<string, unknown> | undefined;
+    const steps = meta?.[PROGRESS_STEPS_META];
+    return Array.isArray(steps) ? steps : undefined;
   }
 
   #isA2UIMessage(obj: unknown): obj is A2UIMessage {

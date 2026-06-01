@@ -14,11 +14,18 @@
 
 """Unit tests for agent_executor post-processing helpers."""
 
+import json
 from types import SimpleNamespace
 
 from a2a.types import DataPart, Part
 from a2ui.a2a.parts import create_a2ui_part
+from a2ui.schema.constants import VERSION_0_8
 
+from app.agent import (
+    _latest_function_response_after_user,
+    _parse_lenient_a2ui_payload,
+    _restaurant_list_llm_response,
+)
 from app.agent_executor import (
     _MapsKeyEventConverter,
     _process_a2ui_parts,
@@ -105,6 +112,94 @@ def test_process_parts_passes_through_non_a2ui_parts():
     assert out == [plain_part]
 
 
+def test_lenient_a2ui_payload_flattens_concatenated_arrays():
+    payload = (
+        '[{"version":"v0.9","createSurface":{"surfaceId":"s1"}}]'
+        '[{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[]}}]'
+    )
+
+    out = _parse_lenient_a2ui_payload(payload)
+
+    assert len(out) == 2
+    assert "createSurface" in out[0]
+    assert "updateComponents" in out[1]
+
+
+def _session_text_event(text: str, author="user"):
+    return SimpleNamespace(
+        author=author,
+        content=SimpleNamespace(
+            parts=[
+                SimpleNamespace(
+                    text=text,
+                    function_call=None,
+                    function_response=None,
+                )
+            ]
+        ),
+    )
+
+
+def _session_function_response_event(
+    name="find_restaurants",
+    payload='[{"name":"Urban Plates","address":"12746 W Jefferson Blvd"}]',
+):
+    return SimpleNamespace(
+        author="a2ui_restaurant_finder",
+        content=SimpleNamespace(
+            parts=[
+                SimpleNamespace(
+                    text=None,
+                    function_call=None,
+                    function_response=SimpleNamespace(
+                        name=name,
+                        response={"result": payload},
+                    ),
+                )
+            ]
+        ),
+    )
+
+
+def test_latest_function_response_after_user_ignores_previous_turn_results():
+    events = [
+        _session_text_event("find restaurants"),
+        _session_function_response_event(),
+        _session_text_event("make a presentation from those restaurants"),
+    ]
+
+    assert _latest_function_response_after_user(events, last_user_index=2) is None
+
+
+def test_restaurant_list_shortcut_emits_a2ui_tool_call():
+    payload = json.dumps(
+        [
+            {
+                "name": "Urban Plates",
+                "detail": "Scratch-made plates and bowls.",
+                "rating": "*****",
+                "infoLink": "[More Info](https://maps.google.com/?cid=1)",
+                "address": "12746 W Jefferson Blvd, Playa Vista, CA",
+            }
+        ]
+    )
+
+    response = _restaurant_list_llm_response(
+        payload,
+        ui_version=VERSION_0_8,
+        title="Restaurants Near Google Playa Vista",
+    )
+
+    assert response is not None
+    parts = response.content.parts
+    assert parts[0].text == "Here are 1 restaurants near Google Playa Vista:"
+    function_call = parts[1].function_call
+    assert function_call.name == "send_a2ui_json_to_client"
+    messages = json.loads(function_call.args["a2ui_json"])
+    assert "beginRendering" in messages[0]
+    assert "surfaceUpdate" in messages[1]
+
+
 def _tool_call_event(name="find_restaurants", call_id="call-1"):
     return SimpleNamespace(
         content=SimpleNamespace(
@@ -144,8 +239,12 @@ def test_progress_deduplicates_replayed_tool_call_event():
     conv._advance_steps(_tool_call_event(), steps)
     conv._advance_steps(_tool_response_event(), steps)
 
-    assert len(steps) == 1
+    assert len(steps) == 2
     assert steps[0]["title"] == "Searching for restaurants"
     assert steps[0]["state"] == "done"
     assert len(steps[0]["tools"]) == 1
     assert steps[0]["tools"][0]["state"] == "done"
+    assert steps[1]["title"] == "Compiling dashboard"
+    assert steps[1]["state"] == "pending"
+    assert len(steps[1]["tools"]) == 1
+    assert steps[1]["tools"][0]["state"] == "pending"

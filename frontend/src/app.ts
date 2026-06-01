@@ -78,11 +78,54 @@ interface ChatMessage {
   text: string;
   surfaceIds?: string[];
   stages?: string[];
+  progressSteps?: ProgressStep[];
   timestamp: Date;
+}
+
+type ProgressStepState = "pending" | "active" | "done" | "failed";
+type ProgressToolState = "pending" | "running" | "done" | "failed";
+
+interface ProgressTool {
+  label: string;
+  state: ProgressToolState;
+}
+
+interface ProgressStep {
+  title: string;
+  detail?: string;
+  state: ProgressStepState;
+  tools: ProgressTool[];
+  completedTools: number;
+  totalTools: number;
+  visualStartedAt?: number;
 }
 
 const TAG = "a2ui-app-shell";
 const PROGRESS_SURFACE_PREFIX = "tool-progress-";
+const OVERALL_PROGRESS_START = 4;
+const OVERALL_PROGRESS_MAX = 98;
+const INITIAL_PROGRESS_TARGET_MS = 8_000;
+const DEFAULT_STEP_TARGET_MS = 20_000;
+const MIN_FINAL_STEP_VISIBLE_MS = 900;
+const COMPLETION_HOLD_MS = 250;
+const STEP_STATE_BY_MARKER: Record<string, ProgressStepState> = {
+  "✓": "done",
+  "▸": "active",
+  "○": "pending",
+  "✗": "failed",
+};
+const TOOL_STATE_BY_MARKER: Record<string, ProgressToolState> = {
+  "○": "pending",
+  "•": "running",
+  "✓": "done",
+  "✗": "failed",
+};
+const STEP_ICON_BY_STATE: Record<ProgressStepState, string> = {
+  pending: "○",
+  active: "•",
+  done: "✓",
+  failed: "✗",
+};
 
 /** Render markdown asynchronously and return a `lit-html`-friendly Promise. */
 async function renderMarkdownHtml(text: string) {
@@ -104,13 +147,16 @@ export class A2UIShell extends SignalWatcher(LitElement) {
 
   // Live streaming state for the in-flight request.
   @state() accessor stages: string[] = [];
-  @state() accessor activeSurfaceIds: string[] = [];
+  @state() accessor progressSteps: ProgressStep[] = [];
   @state() accessor liveContentSurfaceIds: string[] = [];
+  @state() accessor progressPercent = 0;
 
   // Theme management
   @state() accessor isDark = false;
   #themeOverridden = false;
   #systemTheme?: MediaQueryList;
+  #progressTimer?: number;
+  #requestStartedAt = 0;
 
   // Bump this to force a re-render after the processor's surfacesMap mutates.
   @state() accessor renderVersion = 0;
@@ -177,6 +223,7 @@ export class A2UIShell extends SignalWatcher(LitElement) {
 
   disconnectedCallback() {
     this.#systemTheme?.removeEventListener?.("change", this.#onSystemThemeChange);
+    this.stopProgressTimer();
     super.disconnectedCallback();
   }
 
@@ -435,19 +482,6 @@ export class A2UIShell extends SignalWatcher(LitElement) {
       min-width: min(520px, calc(100vw - 96px));
       max-width: min(850px, calc(100vw - 96px));
     }
-    .typing-dots {
-      display: flex; align-items: center; gap: 5px;
-      padding: 12px 16px;
-      background: var(--ge-bg-alt); border-radius: 18px;
-    }
-    .typing-dots span {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: var(--ge-text-muted);
-      animation: bounce 1.2s ease-in-out infinite;
-    }
-    .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
-    .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
-
     /* Live thinking widget / reasoning panel styling */
     .surface-container.live {
       max-width: 560px;
@@ -517,6 +551,128 @@ export class A2UIShell extends SignalWatcher(LitElement) {
       padding: 8px 12px 10px; background: transparent; border-radius: 0;
     }
 
+    .progress-panel {
+      border: 1px solid var(--ge-border);
+      border-radius: 12px;
+      background: var(--ge-bg-alt);
+      padding: 12px 14px;
+      box-shadow: var(--ge-shadow);
+      min-width: 280px;
+    }
+    .progress-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .progress-copy {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      flex: 1;
+    }
+    .progress-kicker {
+      color: var(--ge-text-muted);
+      font-size: 11px;
+      line-height: 1.3;
+    }
+    .progress-title {
+      color: var(--ge-text);
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .progress-percent {
+      color: var(--ge-text-muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    .progress-track {
+      position: relative;
+      height: 6px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: light-dark(#dfe5ee, #333a45);
+    }
+    .progress-fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 0;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #1a73e8, #34a853);
+      transition: width 0.35s ease;
+    }
+    .progress-fill::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255,255,255,0.45),
+        transparent
+      );
+      animation: sweep 1.3s ease-in-out infinite;
+    }
+    .progress-stage-list {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid var(--ge-border);
+    }
+    .step-tools {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 2px 12px 2px 30px;
+    }
+    .step-tool-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      color: var(--ge-text-muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .step-tool-label {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .step-progress {
+      padding: 6px 12px 8px 30px;
+    }
+    .step-progress-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 5px;
+      color: var(--ge-text-muted);
+      font-size: 11px;
+      line-height: 1.3;
+    }
+    .step-progress-track {
+      position: relative;
+      height: 4px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: light-dark(#d8dee8, #303742);
+    }
+    .step-progress-fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      border-radius: inherit;
+      background: var(--ge-blue);
+      transition: width 0.25s ease;
+    }
+    .step-progress-fill.indeterminate {
+      width: 34%;
+      animation: stepIndeterminate 1.1s ease-in-out infinite;
+    }
+    .step-progress-track.failed .step-progress-fill {
+      background: light-dark(#c5221f, #f28b82);
+    }
+
     .input-area {
       flex-shrink: 0; padding: 12px 24px 20px;
       background: var(--ge-bg);
@@ -566,9 +722,13 @@ export class A2UIShell extends SignalWatcher(LitElement) {
       from { opacity: 0; transform: translateY(6px); }
       to   { opacity: 1; transform: translateY(0); }
     }
-    @keyframes bounce {
-      0%, 60%, 100% { transform: translateY(0); }
-      30% { transform: translateY(-5px); }
+    @keyframes sweep {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(100%); }
+    }
+    @keyframes stepIndeterminate {
+      from { transform: translateX(-120%); }
+      to { transform: translateX(320%); }
     }
   `;
 
@@ -591,13 +751,7 @@ export class A2UIShell extends SignalWatcher(LitElement) {
           ? this.renderWelcome()
           : nothing}
         ${this.messages.map((m) => this.renderMessage(m))}
-        ${this.requesting
-          ? this.stages.length > 0 ||
-            this.activeSurfaceIds.length > 0 ||
-            this.liveContentSurfaceIds.length > 0
-            ? this.renderStages()
-            : this.renderTyping()
-          : nothing}
+        ${this.requesting ? this.renderStages() : nothing}
       </div>
 
       ${this.error
@@ -726,6 +880,9 @@ export class A2UIShell extends SignalWatcher(LitElement) {
 
   private renderActivity(msg: ChatMessage) {
     if (msg.role !== "agent") return nothing;
+    if (msg.progressSteps && msg.progressSteps.length > 0) {
+      return this.renderReasoningProgressDetails(msg.progressSteps, false);
+    }
     if (msg.stages && msg.stages.length > 0) {
       return this.renderReasoningDetails(msg.stages, false);
     }
@@ -773,6 +930,23 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     `;
   }
 
+  private renderReasoningProgressDetails(
+    progressSteps: ProgressStep[],
+    open = true,
+  ) {
+    return html`
+      <details class="reasoning" ?open=${open}>
+        <summary class="reasoning-summary">
+          <span class="g-icon" style="font-size:14px">psychology</span>
+          <span>Thought for ${progressSteps.length} step${progressSteps.length === 1 ? "" : "s"}</span>
+        </summary>
+        <div class="stages reasoning-stages">
+          ${progressSteps.map((s) => this.renderProgressStep(s))}
+        </div>
+      </details>
+    `;
+  }
+
   private renderStage(stageText: string, isActive: boolean) {
     const nl = stageText.indexOf("\n");
     const title = nl === -1 ? stageText : stageText.slice(0, nl);
@@ -781,7 +955,7 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     const icon = isActive ? "•" : "✓";
 
     return html`
-      <details class="stage ${stateClass}">
+      <details class="stage ${stateClass}" ?open=${isActive}>
         <summary class="stage-summary">
           <span class="stage-icon">${icon}</span>
           <span class="stage-text">${title}</span>
@@ -791,30 +965,174 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     `;
   }
 
-  private renderTyping() {
+  private renderProgressStep(
+    step: ProgressStep,
+    options: { openPending?: boolean } = {},
+  ) {
+    const stateClass = step.state === "active" ? "active" : step.state;
+    const icon = STEP_ICON_BY_STATE[step.state] ?? "○";
+    const open = options.openPending || step.state !== "pending";
+
     return html`
-      <div class="typing-row">
-        <div class="typing">
-          <div class="avatar">
-            <img src="/gemini-icon.svg" width="32" height="32" alt="Gemini" />
-          </div>
-          <div class="typing-dots">
-            <span></span><span></span><span></span>
-          </div>
+      <details class="stage ${stateClass}" ?open=${open}>
+        <summary class="stage-summary">
+          <span class="stage-icon">${icon}</span>
+          <span class="stage-text">${step.title}</span>
+        </summary>
+        ${step.detail
+          ? html`<div class="stage-detail">${step.detail}</div>`
+          : nothing}
+        ${step.tools.length > 0
+          ? html`
+              <div class="step-tools">
+                ${step.tools.map(
+                  (tool) => html`
+                    <div class="step-tool-row">
+                      <span>${this.renderToolMarker(tool.state)}</span>
+                      <span class="step-tool-label">${tool.label}</span>
+                    </div>
+                  `,
+                )}
+              </div>
+            `
+          : nothing}
+        ${this.renderStepToolProgress(step)}
+      </details>
+    `;
+  }
+
+  private renderStepToolProgress(step: ProgressStep) {
+    const total = Math.max(step.totalTools, step.tools.length);
+    const completed = Math.max(0, Math.min(step.completedTools, total));
+    const pct = this.getStepVisualPercent(step);
+    const failed = step.state === "failed" || step.tools.some((t) => t.state === "failed");
+    const label = this.getStepProgressLabel(step, total, completed, failed);
+    const status = step.state === "pending" ? "Waiting" : `${pct}%`;
+
+    return html`
+      <div class="step-progress">
+        <div class="step-progress-meta">
+          <span>${label}</span>
+          <span>${status}</span>
         </div>
+        <div class="step-progress-track ${failed ? "failed" : ""}">
+          <div
+            class="step-progress-fill"
+            style=${`width: ${pct}%`}
+          ></div>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderToolMarker(state: ProgressToolState) {
+    if (state === "done") return "✓";
+    if (state === "failed") return "✗";
+    if (state === "pending") return "○";
+    return "•";
+  }
+
+  private getStepProgressLabel(
+    step: ProgressStep,
+    total: number,
+    completed: number,
+    failed: boolean,
+  ) {
+    if (failed) return total > 0 ? "Tool call failed" : "Step failed";
+    if (step.state === "pending") {
+      return total > 0 ? "Waiting for tool call" : "Waiting";
+    }
+    if (step.state === "done") {
+      return total > 0 ? "Tool calls complete" : "Step complete";
+    }
+    if (total === 0) return "In progress";
+    return `${completed}/${total} tool call${total === 1 ? "" : "s"} complete`;
+  }
+
+  private getStepVisualPercent(step: ProgressStep) {
+    if (step.state === "done") return 100;
+    if (step.state === "failed") return Math.max(8, Math.min(100, this.getToolPercent(step)));
+    if (step.state === "pending") return 0;
+
+    const startedAt = step.visualStartedAt ?? this.#requestStartedAt;
+    const elapsedMs = Date.now() - startedAt;
+    const estimatedMs = this.getStepEstimatedMs(step);
+    const elapsedPct = Math.round(
+      Math.min(0.95, Math.max(0, elapsedMs / estimatedMs)) * 100,
+    );
+    return Math.max(this.getToolPercent(step), elapsedPct);
+  }
+
+  private getToolPercent(step: ProgressStep) {
+    const total = Math.max(step.totalTools, step.tools.length);
+    if (total === 0) return 0;
+    const completed = Math.max(0, Math.min(step.completedTools, total));
+    return Math.round((completed / total) * 100);
+  }
+
+  private getStepEstimatedMs(step: ProgressStep) {
+    const title = step.title.toLowerCase();
+    if (title.includes("understanding")) return INITIAL_PROGRESS_TARGET_MS;
+    if (title.includes("searching for restaurants")) return 32_000;
+    if (title.includes("compiling dashboard")) return 3_000;
+    if (title.includes("directions")) return 18_000;
+    if (title.includes("google workspace")) return 25_000;
+    return DEFAULT_STEP_TARGET_MS;
+  }
+
+  private renderProgressPanel() {
+    const pct = Math.max(0, Math.min(100, Math.round(this.progressPercent)));
+    const latest = this.stages[this.stages.length - 1] ?? "";
+    const activeStep = this.progressSteps.find((step) => step.state === "active");
+    const title =
+      activeStep?.title || (latest ? latest.split("\n")[0] : "Preparing request");
+    const progressLabel =
+      pct >= OVERALL_PROGRESS_MAX ? "Still working" : `${pct}%`;
+
+    return html`
+      <div class="progress-panel">
+        <div class="progress-head">
+          <span class="g-icon" style="font-size:18px">psychology</span>
+          <div class="progress-copy">
+            <span class="progress-kicker">Thinking</span>
+            <span class="progress-title">${title}</span>
+          </div>
+          <span class="progress-percent">${progressLabel}</span>
+        </div>
+        <div
+          class="progress-track"
+          role="progressbar"
+          aria-label="Agent progress"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow=${pct}
+        >
+          <div class="progress-fill" style=${`width: ${pct}%`}></div>
+        </div>
+        ${this.progressSteps.length > 0
+          ? html`
+              <div class="progress-stage-list">
+                ${this.progressSteps.map((s) =>
+                  this.renderProgressStep(s, { openPending: true }),
+                )}
+              </div>
+            `
+          : this.stages.length > 0
+            ? html`
+                <div class="progress-stage-list">
+                  ${this.stages.map((s, i) =>
+                  this.renderStage(s, i === this.stages.length - 1),
+                )}
+              </div>
+            `
+          : nothing}
       </div>
     `;
   }
 
   private renderStages() {
     void this.renderVersion;
-    const progressSurfaceIds = this.activeSurfaceIds.length > 0
-      ? [this.activeSurfaceIds[this.activeSurfaceIds.length - 1]]
-      : [];
-    const liveSurfaceIds = [
-      ...progressSurfaceIds,
-      ...this.liveContentSurfaceIds,
-    ];
+    const liveSurfaceIds = [...this.liveContentSurfaceIds];
     return html`
       <div class="typing-row">
         <div class="typing">
@@ -822,15 +1140,10 @@ export class A2UIShell extends SignalWatcher(LitElement) {
             <img src="/gemini-icon.svg" width="32" height="32" alt="Gemini" />
           </div>
           <div class="typing-content">
+            ${this.renderProgressPanel()}
             ${liveSurfaceIds.length > 0
               ? this.renderSurfaces(liveSurfaceIds, true)
-              : html`
-                  <div class="stages">
-                    ${this.stages.map((s, i) =>
-                      this.renderStage(s, i === this.stages.length - 1),
-                    )}
-                  </div>
-                `}
+              : nothing}
           </div>
         </div>
       </div>
@@ -872,16 +1185,18 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     this.requesting = true;
     this.error = null;
     this.stages = [];
-    this.activeSurfaceIds = [];
+    this.progressSteps = [];
     this.liveContentSurfaceIds = [];
+    this.startProgressTimer();
     this.scrollToBottom();
 
     const existingIds = new Set(this.#processor.getSurfaces().keys());
 
     try {
       const response = await this.#client.send(message, {
-        onStage: (text: string) => {
-          this.stages = [...this.stages, text];
+        onStage: (text: string, progressSteps?: unknown[]) => {
+          this.addStage(text);
+          if (progressSteps) this.updateProgressFromMetadata(progressSteps);
           this.scrollToBottom();
         },
         onA2UIMessage: (a2uiMessages) => {
@@ -889,6 +1204,8 @@ export class A2UIShell extends SignalWatcher(LitElement) {
           this.scrollToBottom();
         },
       });
+
+      await this.holdFastFinalStepBeforeResult();
 
       if (response.a2uiMessages.length > 0) {
         this.#processor.processMessages(response.a2uiMessages as any);
@@ -908,6 +1225,12 @@ export class A2UIShell extends SignalWatcher(LitElement) {
           text: response.text || "",
           surfaceIds: contentIds.length > 0 ? contentIds : undefined,
           stages: this.stages.length > 0 ? [...this.stages] : undefined,
+          progressSteps: this.progressSteps.length > 0
+            ? this.progressSteps.map((step) => ({
+                ...step,
+                tools: [...step.tools],
+              }))
+            : undefined,
           timestamp: new Date(),
         },
       ];
@@ -915,20 +1238,414 @@ export class A2UIShell extends SignalWatcher(LitElement) {
       console.error("[A2UI] Error:", err);
       this.error = `${err}`;
     } finally {
+      if (!this.error) {
+        this.progressPercent = 100;
+        await this.delay(COMPLETION_HOLD_MS);
+      }
+      this.stopProgressTimer();
       this.requesting = false;
       this.stages = [];
-      this.activeSurfaceIds = [];
+      this.progressSteps = [];
       this.liveContentSurfaceIds = [];
+      this.progressPercent = 0;
       this.scrollToBottom();
     }
+  }
+
+  private async holdFastFinalStepBeforeResult() {
+    const lastStep = this.progressSteps[this.progressSteps.length - 1];
+    if (
+      !lastStep ||
+      lastStep.state !== "done" ||
+      lastStep.visualStartedAt === undefined
+    ) {
+      return;
+    }
+
+    this.progressPercent = 100;
+    await this.updateComplete;
+
+    const elapsedMs = Date.now() - lastStep.visualStartedAt;
+    const remainingMs = MIN_FINAL_STEP_VISIBLE_MS - elapsedMs;
+    if (remainingMs > 0) {
+      await this.delay(remainingMs);
+    }
+  }
+
+  private delay(ms: number) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  private addStage(text: string) {
+    if (this.stages[this.stages.length - 1] === text) return;
+    this.stages = [...this.stages, text];
+  }
+
+  private startProgressTimer() {
+    this.stopProgressTimer();
+    const now = Date.now();
+    this.#requestStartedAt = now;
+    this.progressPercent = OVERALL_PROGRESS_START;
+    this.progressSteps = [
+      {
+        title: "Understanding request",
+        detail: "Analyzing your message and choosing the next action.",
+        state: "active",
+        tools: [],
+        completedTools: 0,
+        totalTools: 0,
+        visualStartedAt: now,
+      },
+    ];
+    this.#progressTimer = window.setInterval(() => {
+      this.advanceEstimatedProgress();
+    }, 300);
+  }
+
+  private stopProgressTimer() {
+    if (this.#progressTimer !== undefined) {
+      window.clearInterval(this.#progressTimer);
+      this.#progressTimer = undefined;
+    }
+  }
+
+  private advanceEstimatedProgress() {
+    if (!this.requesting) return;
+    const target =
+      this.getOverallProgressTarget() ?? this.getInitialProgressTarget();
+    this.progressPercent = Math.max(this.progressPercent, target);
+  }
+
+  private getInitialProgressTarget() {
+    const elapsedMs = Date.now() - this.#requestStartedAt;
+    const elapsedRatio = Math.min(1, elapsedMs / INITIAL_PROGRESS_TARGET_MS);
+    return OVERALL_PROGRESS_START + elapsedRatio * 14;
+  }
+
+  private getOverallProgressTarget() {
+    if (this.progressSteps.length === 0) return null;
+    const weights = this.progressSteps.map((step) => this.getStepWeight(step));
+    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+    if (totalWeight <= 0) return null;
+
+    let weightedProgress = 0;
+    for (let i = 0; i < this.progressSteps.length; i += 1) {
+      weightedProgress += weights[i] * (this.getStepVisualPercent(this.progressSteps[i]) / 100);
+    }
+
+    const allDone = this.progressSteps.every((step) => step.state === "done");
+    const target = (weightedProgress / totalWeight) * 100;
+    return allDone ? 100 : Math.min(OVERALL_PROGRESS_MAX, target);
+  }
+
+  private getStepWeight(step: ProgressStep) {
+    const title = step.title.toLowerCase();
+    if (title.includes("understanding")) return 12;
+    if (title.includes("searching for restaurants")) return 84;
+    if (title.includes("compiling dashboard")) return 4;
+    return Math.max(10, this.getStepEstimatedMs(step) / 1000);
+  }
+
+  private updateProgressFromA2UI(a2uiMessages: Array<Record<string, unknown>>) {
+    let nextSteps: ProgressStep[] | null = null;
+    for (const msg of a2uiMessages) {
+      const steps = this.extractProgressSteps(msg);
+      if (steps.length > 0) nextSteps = steps;
+    }
+    if (!nextSteps) return;
+
+    this.progressSteps = this.mergeProgressStepTiming(nextSteps);
+    this.syncProgressPercentToSteps();
+  }
+
+  private updateProgressFromMetadata(progressSteps: unknown[]) {
+    const normalizedSteps = progressSteps
+      .map((step) => this.normalizeProgressStep(step))
+      .filter((step): step is ProgressStep => Boolean(step));
+    if (normalizedSteps.length > 0) {
+      this.progressSteps = this.mergeProgressStepTiming(normalizedSteps);
+      this.syncProgressPercentToSteps();
+    }
+  }
+
+  private syncProgressPercentToSteps() {
+    const target = this.getOverallProgressTarget();
+    if (target !== null) {
+      this.progressPercent = Math.max(this.progressPercent, target);
+    }
+  }
+
+  private mergeProgressStepTiming(nextSteps: ProgressStep[]) {
+    const now = Date.now();
+    const previousByKey = new Map(
+      this.progressSteps.map((step, index) => [
+        this.progressStepKey(step, index),
+        step,
+      ]),
+    );
+
+    return nextSteps.map((step, index) => {
+      const previous = previousByKey.get(this.progressStepKey(step, index));
+      const becameActive = step.state === "active" && previous?.state !== "active";
+      const visualStartedAt =
+        step.state === "active"
+          ? becameActive
+            ? now
+            : previous?.visualStartedAt ?? now
+          : previous?.visualStartedAt;
+      return { ...step, visualStartedAt };
+    });
+  }
+
+  private progressStepKey(step: ProgressStep, index: number) {
+    const toolLabels = step.tools.map((tool) => tool.label).join(",");
+    return `${index}:${step.title}:${toolLabels}`;
+  }
+
+  private normalizeProgressStep(step: unknown): ProgressStep | null {
+    if (!step || typeof step !== "object") return null;
+    const raw = step as Record<string, unknown>;
+    const title = typeof raw["title"] === "string" ? raw["title"] : "Working";
+    const detail = typeof raw["detail"] === "string" ? raw["detail"] : undefined;
+    const state = this.normalizeProgressStepState(raw["state"]);
+    const rawTools = Array.isArray(raw["tools"]) ? raw["tools"] : [];
+    const tools = rawTools
+      .map((tool) => this.normalizeProgressTool(tool))
+      .filter((tool): tool is ProgressTool => Boolean(tool));
+    const completedTools =
+      typeof raw["completedTools"] === "number"
+        ? raw["completedTools"]
+        : tools.filter((tool) => tool.state === "done").length;
+    const totalTools =
+      typeof raw["totalTools"] === "number" ? raw["totalTools"] : tools.length;
+
+    return {
+      title,
+      detail,
+      state,
+      tools,
+      completedTools,
+      totalTools,
+    };
+  }
+
+  private normalizeProgressTool(tool: unknown): ProgressTool | null {
+    if (!tool || typeof tool !== "object") return null;
+    const raw = tool as Record<string, unknown>;
+    const label = typeof raw["label"] === "string" ? raw["label"] : "Tool call";
+    return {
+      label,
+      state: this.normalizeProgressToolState(raw["state"]),
+    };
+  }
+
+  private normalizeProgressStepState(state: unknown): ProgressStepState {
+    if (
+      state === "pending" ||
+      state === "active" ||
+      state === "done" ||
+      state === "failed"
+    ) {
+      return state;
+    }
+    return "pending";
+  }
+
+  private normalizeProgressToolState(state: unknown): ProgressToolState {
+    if (
+      state === "pending" ||
+      state === "running" ||
+      state === "done" ||
+      state === "failed"
+    ) {
+      return state;
+    }
+    return "running";
+  }
+
+  private extractProgressSteps(msg: Record<string, unknown>): ProgressStep[] {
+    type DraftStep = {
+      title?: string;
+      detail?: string;
+      state?: ProgressStepState;
+      tools: ProgressTool[];
+      completedTools?: number;
+      totalTools?: number;
+    };
+
+    const update =
+      this.getProgressUpdate(msg, "surfaceUpdate") ??
+      this.getProgressUpdate(msg, "updateComponents");
+    const components = update?.["components"];
+    if (!Array.isArray(components)) return [];
+
+    const drafts = new Map<number, DraftStep>();
+    const ensureDraft = (idx: number) => {
+      let draft = drafts.get(idx);
+      if (!draft) {
+        draft = { tools: [] };
+        drafts.set(idx, draft);
+      }
+      return draft;
+    };
+
+    for (const rawComponent of components) {
+      if (!rawComponent || typeof rawComponent !== "object") continue;
+      const component = rawComponent as Record<string, unknown>;
+      const id = component["id"];
+      if (typeof id !== "string") continue;
+      const text = this.getProgressComponentText(component);
+      if (!text) continue;
+
+      let match = id.match(/^th-step-(\d+)$/);
+      if (match) {
+        const draft = ensureDraft(Number(match[1]));
+        const parsed = this.parseMarkedProgressText(
+          text,
+          STEP_STATE_BY_MARKER,
+          "pending",
+        );
+        draft.title = parsed.label;
+        draft.state = parsed.state;
+        continue;
+      }
+
+      match = id.match(/^th-detail-(\d+)$/);
+      if (match) {
+        ensureDraft(Number(match[1])).detail = this.normalizeProgressText(text);
+        continue;
+      }
+
+      match = id.match(/^th-tool-(\d+)-(\d+)$/);
+      if (match) {
+        const draft = ensureDraft(Number(match[1]));
+        const toolIndex = Number(match[2]);
+        const parsed = this.parseMarkedProgressText(
+          this.normalizeProgressText(text).replace(/^↳\s*/, ""),
+          TOOL_STATE_BY_MARKER,
+          "running",
+        );
+        draft.tools[toolIndex] = {
+          label: parsed.label,
+          state: parsed.state,
+        };
+        continue;
+      }
+
+      match = id.match(/^th-toolbar-label-(\d+)$/);
+      if (match) {
+        const counts = this.parseToolCounts(text);
+        if (counts) {
+          const draft = ensureDraft(Number(match[1]));
+          draft.completedTools = counts.completed;
+          draft.totalTools = counts.total;
+        }
+      }
+    }
+
+    return [...drafts.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([, draft]) => {
+        const tools = draft.tools.filter((tool): tool is ProgressTool =>
+          Boolean(tool),
+        );
+        const completedTools =
+          draft.completedTools ??
+          tools.filter((tool) => tool.state === "done").length;
+        const totalTools = draft.totalTools ?? tools.length;
+        const inferredState =
+          draft.state ??
+          (tools.some((tool) => tool.state === "running")
+            ? "active"
+            : tools.length > 0 && tools.every((tool) => tool.state === "done")
+              ? "done"
+              : "pending");
+        return {
+          title: draft.title || "Working",
+          detail: draft.detail,
+          state: inferredState,
+          tools,
+          completedTools,
+          totalTools,
+        };
+      });
+  }
+
+  private getProgressUpdate(msg: Record<string, unknown>, key: string) {
+    const update = msg[key] as Record<string, unknown> | undefined;
+    const surfaceId = update?.["surfaceId"];
+    if (
+      typeof surfaceId === "string" &&
+      surfaceId.startsWith(PROGRESS_SURFACE_PREFIX)
+    ) {
+      return update;
+    }
+    return undefined;
+  }
+
+  private getProgressComponentText(component: Record<string, unknown>) {
+    const topLevelText = component["text"];
+    if (typeof topLevelText === "string") return topLevelText;
+
+    const componentBody = component["component"];
+    if (!componentBody || typeof componentBody !== "object") return null;
+
+    const textComponent = (componentBody as Record<string, unknown>)["Text"];
+    if (!textComponent || typeof textComponent !== "object") return null;
+
+    const text = (textComponent as Record<string, unknown>)["text"];
+    if (typeof text === "string") return text;
+    if (text && typeof text === "object") {
+      const literalString = (text as Record<string, unknown>)["literalString"];
+      if (typeof literalString === "string") return literalString;
+    }
+    return null;
+  }
+
+  private parseMarkedProgressText<T extends string>(
+    text: string,
+    stateByMarker: Record<string, T>,
+    fallbackState: T,
+  ) {
+    const clean = this.normalizeProgressText(text);
+    const marker = clean.charAt(0);
+    const hasMarker = marker in stateByMarker;
+    return {
+      state: hasMarker ? stateByMarker[marker] : fallbackState,
+      label: hasMarker ? clean.slice(marker.length).trim() : clean,
+    };
+  }
+
+  private parseToolCounts(text: string) {
+    const match = this.normalizeProgressText(text).match(
+      /Tool calls\s*·\s*(\d+)\s*\/\s*(\d+)/,
+    );
+    if (!match) return null;
+    return {
+      completed: Number(match[1]),
+      total: Number(match[2]),
+    };
+  }
+
+  private normalizeProgressText(text: string) {
+    return text.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
   }
 
   private processLiveA2UI(a2uiMessages: Array<Record<string, unknown>>) {
     if (a2uiMessages.length === 0) return;
 
-    const idsFromMessages = this.extractSurfaceIds(a2uiMessages);
+    this.updateProgressFromA2UI(a2uiMessages);
+    const renderMessages = a2uiMessages.filter(
+      (msg) => !this.isProgressA2UIMessage(msg),
+    );
+    if (renderMessages.length === 0) {
+      this.renderVersion++;
+      return;
+    }
+
+    const idsFromMessages = this.extractSurfaceIds(renderMessages);
     const before = new Set(this.#processor.getSurfaces().keys());
-    this.#processor.processMessages(a2uiMessages as any);
+    this.#processor.processMessages(renderMessages as any);
     const after = this.#processor.getSurfaces();
     const newIds = [...after.keys()].filter((id) => !before.has(id));
     const ids = [...new Set([...idsFromMessages, ...newIds])].filter((id) =>
@@ -937,12 +1654,24 @@ export class A2UIShell extends SignalWatcher(LitElement) {
 
     for (const id of ids) {
       if (id.startsWith(PROGRESS_SURFACE_PREFIX)) {
-        this.activeSurfaceIds = [id];
-      } else if (!this.liveContentSurfaceIds.includes(id)) {
+        continue;
+      }
+      if (!this.liveContentSurfaceIds.includes(id)) {
         this.liveContentSurfaceIds = [...this.liveContentSurfaceIds, id];
       }
     }
     this.renderVersion++;
+  }
+
+  private isProgressA2UIMessage(msg: Record<string, unknown>) {
+    return Boolean(
+      this.getProgressUpdate(msg, "beginRendering") ||
+        this.getProgressUpdate(msg, "createSurface") ||
+        this.getProgressUpdate(msg, "surfaceUpdate") ||
+        this.getProgressUpdate(msg, "updateComponents") ||
+        this.getProgressUpdate(msg, "dataModelUpdate") ||
+        this.getProgressUpdate(msg, "updateDataModel"),
+    );
   }
 
   private extractSurfaceIds(a2uiMessages: Array<Record<string, unknown>>) {

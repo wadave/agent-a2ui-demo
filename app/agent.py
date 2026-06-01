@@ -17,7 +17,8 @@
 import json
 import logging
 import os
-from typing import ClassVar
+import uuid
+from typing import Any, ClassVar
 
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from a2ui.a2a.extension import get_a2ui_agent_extension
@@ -25,6 +26,7 @@ from a2ui.adk.send_a2ui_to_client_toolset import (
     SendA2uiToClientToolset,
 )
 from a2ui.basic_catalog.provider import BasicCatalog, BundledCatalogProvider
+from a2ui.parser.payload_fixer import parse_and_fix
 from a2ui.schema.catalog import CatalogConfig
 from a2ui.schema.catalog_provider import (
     A2uiCatalogProvider,
@@ -122,6 +124,98 @@ class _MergedBasicCatalogProvider(A2uiCatalogProvider):
                 one_of.append({"$ref": ref})
 
         return merged
+
+
+def _parse_lenient_a2ui_payload(payload: str) -> list[dict[str, Any]]:
+    """Parse A2UI JSON, accepting accidentally concatenated top-level values.
+
+    Gemini sometimes returns a function argument shaped like ``[...][...]`` after
+    a large UI payload. The SDK parser correctly rejects that as invalid JSON,
+    but returning a tool error sends the model into a slow retry loop. Flattening
+    concatenated arrays preserves the intended A2UI messages and completes the
+    turn in one tool call.
+    """
+    try:
+        return parse_and_fix(payload)
+    except Exception as original_error:
+        try:
+            values = _parse_concatenated_json_values(payload)
+        except Exception as recovery_error:
+            raise original_error from recovery_error
+        if not values:
+            raise original_error from None
+
+        messages: list[dict[str, Any]] = []
+        for value in values:
+            if isinstance(value, list):
+                messages.extend(value)
+            elif isinstance(value, dict):
+                messages.append(value)
+            else:
+                raise original_error from None
+
+        if not all(isinstance(message, dict) for message in messages):
+            raise original_error from None
+        logger.warning(
+            "Recovered A2UI payload with %d concatenated top-level JSON values",
+            len(values),
+        )
+        return messages
+
+
+def _parse_concatenated_json_values(payload: str) -> list[Any]:
+    decoder = json.JSONDecoder()
+    text = (
+        payload.replace("\u201c", '"')
+        .replace("\u201d", '"')
+        .replace("\u2018", "'")
+        .replace("\u2019", "'")
+        .strip()
+    )
+    values: list[Any] = []
+    idx = 0
+    while idx < len(text):
+        while idx < len(text) and text[idx].isspace():
+            idx += 1
+        if idx >= len(text):
+            break
+        value, idx = decoder.raw_decode(text, idx)
+        values.append(value)
+    return values if len(values) > 1 else []
+
+
+class LenientSendA2uiToClientToolset(SendA2uiToClientToolset):
+    """A2UI toolset that avoids slow LLM retry loops for recoverable JSON errors."""
+
+    def __init__(self, a2ui_enabled, a2ui_catalog, a2ui_examples):
+        super().__init__(a2ui_enabled, a2ui_catalog, a2ui_examples)
+        self._ui_tools = [
+            self._LenientSendA2uiJsonToClientTool(a2ui_catalog, a2ui_examples)
+        ]
+
+    class _LenientSendA2uiJsonToClientTool(
+        SendA2uiToClientToolset._SendA2uiJsonToClientTool
+    ):
+        async def run_async(self, *, args: dict[str, Any], tool_context) -> Any:
+            try:
+                a2ui_json = args.get(self.A2UI_JSON_ARG_NAME)
+                if not a2ui_json:
+                    raise ValueError(
+                        f"Failed to call tool {self.TOOL_NAME} because missing "
+                        f"required arg {self.A2UI_JSON_ARG_NAME}"
+                    )
+
+                a2ui_catalog = await self._resolve_a2ui_catalog(tool_context)
+                a2ui_json_payload = _parse_lenient_a2ui_payload(a2ui_json)
+                a2ui_catalog.validator.validate(a2ui_json_payload)
+
+                tool_context.actions.skip_summarization = True
+                return {self.VALIDATED_A2UI_JSON_KEY: a2ui_json_payload}
+
+            except Exception as e:
+                err = f"Failed to call A2UI tool {self.TOOL_NAME}: {e}"
+                logger.error(err)
+                return {self.TOOL_ERROR_KEY: err}
 
 
 ROLE_DESCRIPTION = """
@@ -378,6 +472,416 @@ def _collect_recent_restaurant_data(events) -> str | None:
     return None
 
 
+def _latest_function_response(events) -> tuple[str, str] | None:
+    """Return the newest function response name and payload from the given events."""
+    for event in reversed(events or []):
+        content = getattr(event, "content", None)
+        if not content or not getattr(content, "parts", None):
+            continue
+        for part in reversed(content.parts):
+            fr = getattr(part, "function_response", None)
+            if fr and getattr(fr, "name", None):
+                payload = _extract_function_response_payload(fr)
+                if payload is not None:
+                    return fr.name, payload
+    return None
+
+
+def _latest_function_response_after_user(
+    events,
+    last_user_index: int,
+) -> tuple[str, str] | None:
+    """Return the newest tool response produced after the current user message."""
+    if last_user_index < 0:
+        return None
+    return _latest_function_response(events[last_user_index + 1 :])
+
+
+def _parse_restaurants(payload: str) -> list[dict[str, Any]]:
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        logger.warning("Could not parse find_restaurants payload for deterministic UI")
+        return []
+    if isinstance(data, dict):
+        data = [data]
+    if not isinstance(data, list):
+        return []
+    restaurants: list[dict[str, Any]] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        restaurants.append(
+            {
+                "name": str(item.get("name") or "Restaurant"),
+                "rating": str(item.get("rating") or "★★★★☆"),
+                "detail": str(item.get("detail") or "Restaurant nearby."),
+                "address": str(item.get("address") or ""),
+                "infoLink": str(item.get("infoLink") or ""),
+            }
+        )
+    return restaurants
+
+
+def _restaurant_list_title(user_message: str) -> str:
+    if "plv" in user_message or "playa vista" in user_message:
+        if "google" in user_message or "office" in user_message:
+            return "Restaurants Near Google Playa Vista"
+        return "Restaurants Near Playa Vista"
+    return "Restaurant Recommendations"
+
+
+def _restaurant_list_intro(count: int, title: str) -> str:
+    if title.startswith("Restaurants Near "):
+        location = title.removeprefix("Restaurants Near ")
+        return f"Here are {count} restaurants near {location}:"
+    return f"Here are {count} restaurant recommendations:"
+
+
+def _restaurant_list_a2ui_messages(
+    restaurants: list[dict[str, Any]],
+    *,
+    ui_version: str,
+    title: str,
+) -> list[dict[str, Any]]:
+    surface_id = f"restaurant-selection-{uuid.uuid4().hex[:8]}"
+    if ui_version == VERSION_0_9:
+        return _restaurant_list_a2ui_messages_v0_9(surface_id, title, restaurants)
+    return _restaurant_list_a2ui_messages_v0_8(surface_id, title, restaurants)
+
+
+def _restaurant_list_a2ui_messages_v0_9(
+    surface_id: str,
+    title: str,
+    restaurants: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "version": "v0.9",
+            "createSurface": {
+                "surfaceId": surface_id,
+                "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json",
+            },
+        },
+        {
+            "version": "v0.9",
+            "updateComponents": {
+                "surfaceId": surface_id,
+                "components": [
+                    {
+                        "id": "root",
+                        "component": "Column",
+                        "children": ["title-heading", "item-list"],
+                    },
+                    {
+                        "id": "title-heading",
+                        "component": "Text",
+                        "variant": "h2",
+                        "text": {"path": "/title"},
+                    },
+                    {
+                        "id": "item-list",
+                        "component": "List",
+                        "direction": "vertical",
+                        "children": {
+                            "componentId": "item-card-template",
+                            "path": "/items",
+                        },
+                    },
+                    {
+                        "id": "item-card-template",
+                        "component": "Card",
+                        "child": "card-layout",
+                    },
+                    {
+                        "id": "card-layout",
+                        "component": "Column",
+                        "children": [
+                            "template-name",
+                            "template-rating",
+                            "template-detail",
+                            "template-address",
+                            "template-link",
+                            "template-button-row",
+                        ],
+                    },
+                    {
+                        "id": "template-name",
+                        "component": "Text",
+                        "variant": "h3",
+                        "text": {"path": "name"},
+                    },
+                    {
+                        "id": "template-rating",
+                        "component": "Text",
+                        "text": {"path": "rating"},
+                    },
+                    {
+                        "id": "template-detail",
+                        "component": "Text",
+                        "text": {"path": "detail"},
+                    },
+                    {
+                        "id": "template-address",
+                        "component": "Text",
+                        "variant": "caption",
+                        "text": {"path": "address"},
+                    },
+                    {
+                        "id": "template-link",
+                        "component": "Text",
+                        "text": {"path": "infoLink"},
+                    },
+                    {
+                        "id": "template-button-row",
+                        "component": "Row",
+                        "justify": "end",
+                        "children": ["show-details-button", "show-map-button"],
+                    },
+                    {
+                        "id": "show-details-button",
+                        "component": "Button",
+                        "child": "show-details-text",
+                        "variant": "primary",
+                        "action": {
+                            "event": {
+                                "name": "selectRestaurants",
+                                "context": {
+                                    "restaurantName": {"path": "name"},
+                                    "address": {"path": "address"},
+                                },
+                            }
+                        },
+                    },
+                    {
+                        "id": "show-details-text",
+                        "component": "Text",
+                        "text": "Detailed Information",
+                    },
+                    {
+                        "id": "show-map-button",
+                        "component": "Button",
+                        "child": "show-map-text",
+                        "action": {
+                            "event": {
+                                "name": "showOnMap",
+                                "context": {
+                                    "restaurantName": {"path": "name"},
+                                    "address": {"path": "address"},
+                                },
+                            }
+                        },
+                    },
+                    {
+                        "id": "show-map-text",
+                        "component": "Text",
+                        "text": "Show on Map",
+                    },
+                ],
+            },
+        },
+        {
+            "version": "v0.9",
+            "updateDataModel": {
+                "surfaceId": surface_id,
+                "path": "/",
+                "value": {"title": title, "items": restaurants},
+            },
+        },
+    ]
+
+
+def _restaurant_list_a2ui_messages_v0_8(
+    surface_id: str,
+    title: str,
+    restaurants: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    children = ["title-heading"]
+    components: list[dict[str, Any]] = [
+        {
+            "id": "root",
+            "component": {"Column": {"children": {"explicitList": children}}},
+        },
+        {
+            "id": "title-heading",
+            "component": {
+                "Text": {"text": {"literalString": title}, "usageHint": "h2"}
+            },
+        },
+    ]
+
+    for idx, restaurant in enumerate(restaurants, start=1):
+        children.append(f"restaurant-card-{idx}")
+        name = restaurant["name"]
+        address = restaurant["address"]
+        components.extend(
+            [
+                {
+                    "id": f"restaurant-card-{idx}",
+                    "component": {"Card": {"child": f"card-content-{idx}"}},
+                },
+                {
+                    "id": f"card-content-{idx}",
+                    "component": {
+                        "Column": {
+                            "children": {
+                                "explicitList": [
+                                    f"name-{idx}",
+                                    f"rating-{idx}",
+                                    f"detail-{idx}",
+                                    f"address-{idx}",
+                                    f"link-{idx}",
+                                    f"buttons-{idx}",
+                                ]
+                            }
+                        }
+                    },
+                },
+                {
+                    "id": f"name-{idx}",
+                    "component": {
+                        "Text": {
+                            "text": {"literalString": name},
+                            "usageHint": "h3",
+                        }
+                    },
+                },
+                {
+                    "id": f"rating-{idx}",
+                    "component": {
+                        "Text": {"text": {"literalString": restaurant["rating"]}}
+                    },
+                },
+                {
+                    "id": f"detail-{idx}",
+                    "component": {
+                        "Text": {"text": {"literalString": restaurant["detail"]}}
+                    },
+                },
+                {
+                    "id": f"address-{idx}",
+                    "component": {
+                        "Text": {
+                            "text": {"literalString": address},
+                            "usageHint": "caption",
+                        }
+                    },
+                },
+                {
+                    "id": f"link-{idx}",
+                    "component": {
+                        "Text": {"text": {"literalString": restaurant["infoLink"]}}
+                    },
+                },
+                {
+                    "id": f"buttons-{idx}",
+                    "component": {
+                        "Row": {
+                            "children": {
+                                "explicitList": [
+                                    f"details-btn-{idx}",
+                                    f"map-btn-{idx}",
+                                ]
+                            }
+                        }
+                    },
+                },
+                {
+                    "id": f"details-btn-{idx}",
+                    "component": {
+                        "Button": {
+                            "child": f"details-text-{idx}",
+                            "primary": True,
+                            "action": {
+                                "name": "selectRestaurants",
+                                "context": [
+                                    {
+                                        "key": "restaurantName",
+                                        "value": {"literalString": name},
+                                    },
+                                    {
+                                        "key": "address",
+                                        "value": {"literalString": address},
+                                    },
+                                ],
+                            },
+                        }
+                    },
+                },
+                {
+                    "id": f"details-text-{idx}",
+                    "component": {
+                        "Text": {"text": {"literalString": "Detailed Information"}}
+                    },
+                },
+                {
+                    "id": f"map-btn-{idx}",
+                    "component": {
+                        "Button": {
+                            "child": f"map-text-{idx}",
+                            "action": {
+                                "name": "showOnMap",
+                                "context": [
+                                    {
+                                        "key": "restaurantName",
+                                        "value": {"literalString": name},
+                                    },
+                                    {
+                                        "key": "address",
+                                        "value": {"literalString": address},
+                                    },
+                                ],
+                            },
+                        }
+                    },
+                },
+                {
+                    "id": f"map-text-{idx}",
+                    "component": {"Text": {"text": {"literalString": "Show on Map"}}},
+                },
+            ]
+        )
+
+    return [
+        {"beginRendering": {"surfaceId": surface_id, "root": "root"}},
+        {"surfaceUpdate": {"surfaceId": surface_id, "components": components}},
+    ]
+
+
+def _restaurant_list_llm_response(
+    payload: str,
+    *,
+    ui_version: str,
+    title: str = "Restaurant Recommendations",
+) -> LlmResponse | None:
+    restaurants = _parse_restaurants(payload)
+    if not restaurants:
+        return None
+    intro = _restaurant_list_intro(len(restaurants), title)
+    a2ui_messages = _restaurant_list_a2ui_messages(
+        restaurants,
+        ui_version=ui_version,
+        title=title,
+    )
+    return LlmResponse(
+        content=types.Content(
+            role="model",
+            parts=[
+                types.Part(text=intro),
+                types.Part.from_function_call(
+                    name="send_a2ui_json_to_client",
+                    args={
+                        "a2ui_json": json.dumps(
+                            a2ui_messages,
+                            separators=(",", ":"),
+                        )
+                    },
+                ),
+            ],
+        )
+    )
+
+
 def _before_model_callback(
     callback_context: CallbackContext, llm_request: LlmRequest
 ) -> LlmResponse | None:
@@ -394,16 +898,40 @@ def _before_model_callback(
 
     # Find the most recent user message
     last_user_msg = ""
-    for event in reversed(events):
+    last_user_index = -1
+    for idx in range(len(events) - 1, -1, -1):
+        event = events[idx]
         if event.author == "user" and event.content and event.content.parts:
             for part in event.content.parts:
                 if part.text:
                     last_user_msg = part.text.lower()
+                    last_user_index = idx
                     break
             break
 
     if not last_user_msg:
         return None
+
+    latest_response = _latest_function_response_after_user(events, last_user_index)
+    if (
+        latest_response
+        and latest_response[0] == "find_restaurants"
+        and callback_context.session.state.get(A2UI_ENABLED_KEY)
+    ):
+        ui_version = callback_context.session.state.get(
+            "active_ui_version", VERSION_0_8
+        )
+        response = _restaurant_list_llm_response(
+            latest_response[1],
+            ui_version=ui_version,
+            title=_restaurant_list_title(last_user_msg),
+        )
+        if response is not None:
+            logger.info(
+                "Short-circuiting post-find_restaurants model call with "
+                "deterministic A2UI restaurant list"
+            )
+            return response
 
     extra_instructions: list[str] = []
 
@@ -758,7 +1286,7 @@ class RestaurantFinderAgent:
             tools=[
                 find_restaurants,
                 get_directions,
-                SendA2uiToClientToolset(
+                LenientSendA2uiToClientToolset(
                     a2ui_enabled=_get_a2ui_enabled,
                     a2ui_catalog=_get_a2ui_catalog,
                     a2ui_examples=_get_a2ui_examples,
