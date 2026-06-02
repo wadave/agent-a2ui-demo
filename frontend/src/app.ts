@@ -1046,6 +1046,9 @@ export class A2UIShell extends SignalWatcher(LitElement) {
       return total > 0 ? "Tool calls complete" : "Step complete";
     }
     if (total === 0) return "In progress";
+    if (completed === 0) {
+      return total === 1 ? "Tool call running" : "Tool calls running";
+    }
     return `${completed}/${total} tool call${total === 1 ? "" : "s"} complete`;
   }
 
@@ -1253,23 +1256,75 @@ export class A2UIShell extends SignalWatcher(LitElement) {
   }
 
   private async holdFastFinalStepBeforeResult() {
-    const lastStep = this.progressSteps[this.progressSteps.length - 1];
-    if (
-      !lastStep ||
-      lastStep.state !== "done" ||
-      lastStep.visualStartedAt === undefined
-    ) {
+    const lastIndex = this.progressSteps.length - 1;
+    if (lastIndex < 0) {
+      return;
+    }
+
+    let lastStep = this.progressSteps[lastIndex];
+    if (lastStep.state === "pending") {
+      this.setProgressStep(lastIndex, (step) => ({
+        ...step,
+        state: "active",
+        tools: step.tools.map((tool) => ({
+          ...tool,
+          state: tool.state === "pending" ? "running" : tool.state,
+        })),
+        visualStartedAt: Date.now(),
+      }));
+      this.syncProgressPercentToSteps();
+      await this.updateComplete;
+      await this.delay(MIN_FINAL_STEP_VISIBLE_MS);
+      lastStep = this.progressSteps[lastIndex];
+    }
+
+    if (lastStep.state === "active") {
+      const startedAt = lastStep.visualStartedAt ?? Date.now();
+      const elapsedMs = Date.now() - startedAt;
+      const remainingMs = MIN_FINAL_STEP_VISIBLE_MS - elapsedMs;
+      if (remainingMs > 0) {
+        await this.delay(remainingMs);
+      }
+      this.setProgressStep(lastIndex, (step) => this.completeProgressStep(step));
+      this.progressPercent = 100;
+      await this.updateComplete;
+      await this.delay(COMPLETION_HOLD_MS);
+      return;
+    }
+
+    if (lastStep.state !== "done") {
       return;
     }
 
     this.progressPercent = 100;
     await this.updateComplete;
 
-    const elapsedMs = Date.now() - lastStep.visualStartedAt;
+    const startedAt = lastStep.visualStartedAt ?? Date.now();
+    const elapsedMs = Date.now() - startedAt;
     const remainingMs = MIN_FINAL_STEP_VISIBLE_MS - elapsedMs;
     if (remainingMs > 0) {
       await this.delay(remainingMs);
     }
+  }
+
+  private setProgressStep(
+    index: number,
+    update: (step: ProgressStep) => ProgressStep,
+  ) {
+    this.progressSteps = this.progressSteps.map((step, i) =>
+      i === index ? update(step) : step,
+    );
+  }
+
+  private completeProgressStep(step: ProgressStep): ProgressStep {
+    const totalTools = Math.max(step.totalTools, step.tools.length);
+    return {
+      ...step,
+      state: "done",
+      tools: step.tools.map((tool) => ({ ...tool, state: "done" })),
+      completedTools: totalTools,
+      totalTools,
+    };
   }
 
   private delay(ms: number) {
@@ -1324,6 +1379,10 @@ export class A2UIShell extends SignalWatcher(LitElement) {
 
   private getOverallProgressTarget() {
     if (this.progressSteps.length === 0) return null;
+    if (this.isOnlyInitialUnderstandingStep()) {
+      return this.getInitialProgressTarget();
+    }
+
     const weights = this.progressSteps.map((step) => this.getStepWeight(step));
     const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
     if (totalWeight <= 0) return null;
@@ -1336,6 +1395,16 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     const allDone = this.progressSteps.every((step) => step.state === "done");
     const target = (weightedProgress / totalWeight) * 100;
     return allDone ? 100 : Math.min(OVERALL_PROGRESS_MAX, target);
+  }
+
+  private isOnlyInitialUnderstandingStep() {
+    if (this.progressSteps.length !== 1) return false;
+    const [step] = this.progressSteps;
+    return (
+      step.title.toLowerCase().includes("understanding") &&
+      step.state === "active" &&
+      step.tools.length === 0
+    );
   }
 
   private getStepWeight(step: ProgressStep) {
@@ -1383,9 +1452,17 @@ export class A2UIShell extends SignalWatcher(LitElement) {
         step,
       ]),
     );
+    const previousByStableKey = new Map(
+      this.progressSteps.map((step, index) => [
+        this.progressStableStepKey(step, index),
+        step,
+      ]),
+    );
 
     return nextSteps.map((step, index) => {
-      const previous = previousByKey.get(this.progressStepKey(step, index));
+      const previous =
+        previousByKey.get(this.progressStepKey(step, index)) ??
+        previousByStableKey.get(this.progressStableStepKey(step, index));
       const becameActive = step.state === "active" && previous?.state !== "active";
       const visualStartedAt =
         step.state === "active"
@@ -1400,6 +1477,10 @@ export class A2UIShell extends SignalWatcher(LitElement) {
   private progressStepKey(step: ProgressStep, index: number) {
     const toolLabels = step.tools.map((tool) => tool.label).join(",");
     return `${index}:${step.title}:${toolLabels}`;
+  }
+
+  private progressStableStepKey(step: ProgressStep, index: number) {
+    return `${index}:${step.title}`;
   }
 
   private normalizeProgressStep(step: unknown): ProgressStep | null {

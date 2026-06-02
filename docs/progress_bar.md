@@ -371,6 +371,10 @@ const visualStartedAt =
 After merging, `syncProgressPercentToSteps()` updates the overall bar
 immediately instead of waiting for the next timer tick.
 
+The merge matches both the full step key and a stable `index:title` fallback.
+That prevents repeated backend metadata updates from resetting an active
+step's local timer when tool details change slightly between events.
+
 ### Compatibility A2UI Progress Path
 
 `sendAndProcess()` also passes live A2UI data parts to `processLiveA2UI()`.
@@ -409,7 +413,8 @@ The top bar displays the weighted overall percent. Each step displays:
 - title and detail,
 - tool rows with markers,
 - a determinate step progress bar,
-- a state label such as `Waiting`, `In progress`, or `Tool calls complete`.
+- a state label such as `Waiting`, `Tool call running`, `In progress`, or
+  `Tool calls complete`.
 
 Pending steps are shown with a 0 percent bar and `Waiting`. Active steps animate
 linearly by elapsed time. Done steps show 100 percent.
@@ -431,6 +436,8 @@ const OVERALL_PROGRESS_START = 4;
 const OVERALL_PROGRESS_MAX = 98;
 const INITIAL_PROGRESS_TARGET_MS = 8_000;
 const DEFAULT_STEP_TARGET_MS = 20_000;
+const MIN_FINAL_STEP_VISIBLE_MS = 900;
+const COMPLETION_HOLD_MS = 250;
 ```
 
 Step estimates:
@@ -457,6 +464,11 @@ For the restaurant query, this means the long Google Maps search owns most of
 the top-level progress. That prevents the old behavior where a fixed timer
 ended around 49 percent and then jumped to 100 percent when the request
 completed.
+
+The initial local-only "Understanding request" step is special-cased. While it
+is the only step, the overall bar uses `getInitialProgressTarget()` instead of
+the weighted-step formula. That keeps the top-level percent from climbing too
+far before the backend sends the real tool steps.
 
 Treat `frontend/src/app.ts` as the source of truth for numeric tuning. The
 document names the current constants and formulas so future edits can find the
@@ -486,7 +498,16 @@ percent before the tool response arrives.
 When the request succeeds, `sendAndProcess()` first calls
 `holdFastFinalStepBeforeResult()`. If the last step just became done, the
 frontend waits until that step has had at least `MIN_FINAL_STEP_VISIBLE_MS` of
-live-panel visibility before inserting the final result surface.
+live-panel visibility before inserting the final result surface. If the backend
+emits only the done state for a very fast final step, the frontend still holds
+that done state briefly so the user can see the 100 percent final step before
+the result replaces the live panel.
+
+If the final step is still `pending` when the response is ready, the frontend
+briefly promotes that last step to `active`, marks its pending tools as
+`running`, then completes it before rendering the final surface. This is a
+visual bridge for very fast deterministic render steps such as
+`Compiling dashboard`; it does not change the backend progress protocol.
 
 After the result is inserted, the overall bar is briefly held at 100 percent
 before clearing the live panel:
