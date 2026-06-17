@@ -15,9 +15,19 @@
 """Unit tests for agent_executor post-processing helpers."""
 
 import json
+import uuid
 from types import SimpleNamespace
 
-from a2a.types import DataPart, Part
+from a2a.types import (
+    DataPart,
+    Message,
+    Part,
+    Role,
+    TaskState,
+    TaskStatus,
+    TaskStatusUpdateEvent,
+    TextPart,
+)
 from a2ui.a2a.parts import create_a2ui_part
 from a2ui.schema.constants import VERSION_0_8
 
@@ -27,6 +37,7 @@ from app.agent import (
     _restaurant_list_llm_response,
 )
 from app.agent_executor import (
+    _get_single_line_progress,
     _MapsKeyEventConverter,
     _process_a2ui_parts,
     _repair_catalog_id,
@@ -248,3 +259,192 @@ def test_progress_deduplicates_replayed_tool_call_event():
     assert steps[1]["state"] == "pending"
     assert len(steps[1]["tools"]) == 1
     assert steps[1]["tools"][0]["state"] == "pending"
+
+
+def test_get_single_line_progress_in_progress_no_tools():
+    steps = [
+        {"title": "Understanding request", "state": "done", "tools": []},
+        {"title": "Searching for restaurants", "state": "active", "tools": []},
+    ]
+    text, pct = _get_single_line_progress(steps)
+    assert text == "▸ Searching for restaurants... (75%)"
+    assert pct == 75
+
+
+def test_get_single_line_progress_in_progress_with_tools():
+    steps = [
+        {
+            "title": "Searching for restaurants",
+            "state": "active",
+            "tools": [
+                {"name": "find_restaurants", "state": "done"},
+                {"name": "other_tool", "state": "running"},
+            ],
+        }
+    ]
+    text, pct = _get_single_line_progress(steps)
+    assert text == "▸ Searching for restaurants... (50%)"
+    assert pct == 50
+
+
+def test_get_single_line_progress_done():
+    steps = [{"title": "Searching for restaurants", "state": "done", "tools": []}]
+    text, pct = _get_single_line_progress(steps, done=True)
+    assert text == "✓ Complete (100%)"
+    assert pct == 100
+
+
+def test_get_single_line_progress_failed():
+    steps = [{"title": "Searching for restaurants", "state": "active", "tools": []}]
+    text, pct = _get_single_line_progress(steps, failed=True)
+    assert text == "✗ Failed"
+    assert pct == 0
+
+
+def _multi_tool_call_event(calls: list[tuple[str, str]]):
+    return SimpleNamespace(
+        content=SimpleNamespace(
+            parts=[
+                SimpleNamespace(
+                    text=None,
+                    function_call=SimpleNamespace(name=name, id=call_id),
+                    function_response=None,
+                )
+                for name, call_id in calls
+            ]
+        ),
+        is_final_response=lambda: False,
+    )
+
+
+def _multi_tool_response_event(responses: list[tuple[str, str]]):
+    return SimpleNamespace(
+        content=SimpleNamespace(
+            parts=[
+                SimpleNamespace(
+                    text=None,
+                    function_call=None,
+                    function_response=SimpleNamespace(name=name, id=call_id),
+                )
+                for name, call_id in responses
+            ]
+        ),
+        is_final_response=lambda: False,
+    )
+
+
+def test_progress_monotonicity_and_deduplication():
+    # Setup mock invocation context & a2a events
+    class MockSession:
+        def __init__(self):
+            self.state = {"system:a2ui_progress": False}
+
+    class MockContext:
+        def __init__(self):
+            self.invocation_id = "test-inv-id"
+            self.session = MockSession()
+
+    conv = _MapsKeyEventConverter()
+    context = MockContext()
+
+    def make_working_event():
+        return TaskStatusUpdateEvent(
+            task_id="t1",
+            context_id="c1",
+            final=False,
+            status=TaskStatus(
+                state=TaskState.working,
+                message=Message(message_id=uuid.uuid4().hex, role=Role.agent, parts=[]),
+            ),
+        )
+
+    # Simulate steps
+    steps = [
+        {
+            "title": "Searching for restaurants",
+            "detail": "Searching for restaurants near the requested location.",
+            "state": "active",
+            "tools": [
+                {"name": "find_restaurants", "state": "running"},
+                {"name": "other_tool", "state": "running"},
+            ],
+        }
+    ]
+    conv._progress["test-inv-id"] = {
+        "steps": steps,
+        "surface_id": "tool-progress-1234",
+        "begin_sent": False,
+        "last_native_pct": 0,
+        "last_emitted_text": None,
+    }
+
+    # 1. First event: parallel tool call (total tools = 2, completed = 0 -> 0% pct -> max(5, 0) = 5% pct)
+    event1 = _multi_tool_call_event(
+        [("find_restaurants", "call-1"), ("other_tool", "call-2")]
+    )
+    a2a_events1 = [make_working_event()]
+    conv._enrich_with_progress(event1, context, a2a_events1, "t1", "c1")
+
+    # Verify we got a working text part with the step name and percentage
+    status1 = a2a_events1[0].status
+    assert (
+        status1 is not None
+        and status1.message is not None
+        and status1.message.parts is not None
+    )
+    assert len(status1.message.parts) == 1
+    part1 = status1.message.parts[0]
+    root1 = part1.root
+    assert root1 is not None and isinstance(root1, TextPart)
+    text1 = root1.text
+    assert "Searching for restaurants" in text1
+    assert "(5%)" in text1
+
+    # 2. Simulate tool call 1 completed (completed = 1 -> 50%)
+    event2 = _multi_tool_response_event([("find_restaurants", "call-1")])
+    a2a_events2 = [make_working_event()]
+    conv._enrich_with_progress(event2, context, a2a_events2, "t1", "c1")
+    status2 = a2a_events2[0].status
+    assert (
+        status2 is not None
+        and status2.message is not None
+        and status2.message.parts is not None
+    )
+    part2 = status2.message.parts[0]
+    root2 = part2.root
+    assert root2 is not None and isinstance(root2, TextPart)
+    text2 = root2.text
+    assert "(50%)" in text2
+
+    # 3. Monotonicity test:
+    # If the converter somehow gets an event that drops the percentage back,
+    # it should clamp to the highest seen percentage (50%).
+    # We change the title so it's not deduplicated:
+    steps[0]["title"] = "Refined Search"
+    steps[0]["tools"][0]["state"] = "running"
+
+    event3 = _multi_tool_call_event([("other_tool", "call-2")])
+    a2a_events3 = [make_working_event()]
+    conv._enrich_with_progress(event3, context, a2a_events3, "t1", "c1")
+    status3 = a2a_events3[0].status
+    assert (
+        status3 is not None
+        and status3.message is not None
+        and status3.message.parts is not None
+    )
+    part3 = status3.message.parts[0]
+    root3 = part3.root
+    assert root3 is not None and isinstance(root3, TextPart)
+    text3 = root3.text
+    # Title is new, percentage should stay 50%
+    assert "Refined Search" in text3
+    assert "(50%)" in text3
+
+    # 4. Deduplication test:
+    # If the formatted text is exactly the same as last text, no new part should be added.
+    a2a_events4 = [make_working_event()]
+    conv._enrich_with_progress(event3, context, a2a_events4, "t1", "c1")
+    status4 = a2a_events4[0].status
+    assert status4 is not None and status4.message is not None
+    # Since text is identical, the parts of a2a_events4[0].status.message should remain empty
+    assert not status4.message.parts

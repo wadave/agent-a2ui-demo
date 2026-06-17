@@ -696,6 +696,58 @@ def _progress_status_text(
     return "\n".join(lines).rstrip()
 
 
+def _has_function_call(event) -> bool:
+    """Check if the event contains any function calls."""
+    content = getattr(event, "content", None)
+    parts = getattr(content, "parts", None) or []
+    for part in parts:
+        fc = getattr(part, "function_call", None)
+        if fc and getattr(fc, "name", None):
+            return True
+    return False
+
+
+def _get_single_line_progress(
+    steps: list[dict[str, Any]],
+    *,
+    done: bool = False,
+    failed: bool = False,
+) -> tuple[str | None, int]:
+    """Calculate progress percentage and build single-line progress text for GE."""
+    if failed:
+        return "✗ Failed", 0
+    if done:
+        return "✓ Complete (100%)", 100
+    if not steps:
+        return None, 0
+
+    active_step = next((s for s in steps if s.get("state") == "active"), None)
+    if not active_step:
+        active_step = steps[-1] if steps else None
+
+    if not active_step:
+        return "Thinking... (5%)", 5
+
+    title = active_step.get("title", "Thinking")
+
+    # Calculate tool-based progress if tools exist
+    done_tools = sum(
+        1 for s in steps for t in s.get("tools", []) if t.get("state") == "done"
+    )
+    total_tools = sum(len(s.get("tools", [])) for s in steps)
+
+    if total_tools > 0:
+        pct = round(done_tools / total_tools * 100)
+    else:
+        # If no tools, distribute progress evenly across steps
+        total_steps = len(steps)
+        active_idx = steps.index(active_step) if active_step in steps else 0
+        pct = round((active_idx + 0.5) / total_steps * 100) if total_steps else 0
+
+    pct = max(5, min(95, pct))
+    return f"▸ {title}... ({pct}%)", pct
+
+
 def _progress_status_parts(
     surface_id: str,
     steps: list[dict[str, Any]],
@@ -928,13 +980,29 @@ class _MapsKeyEventConverter(A2uiEventConverter):
                 "steps": [],
                 "surface_id": f"{PROGRESS_SURFACE_PREFIX}{uuid.uuid4().hex[:8]}",
                 "begin_sent": False,
+                "last_native_pct": 0,
+                "last_emitted_text": None,
             },
         )
 
         steps = progress["steps"]
         is_final = bool(
-            getattr(event, "is_final_response", None) and event.is_final_response()
+            getattr(event, "is_final_response", None)
+            and event.is_final_response()
+            and not _has_function_call(event)
         )
+        failed = any(
+            getattr(getattr(e, "status", None), "state", None) == TaskState.failed
+            for e in a2a_events
+        )
+        if failed:
+            for step in steps:
+                if step["state"] == "active":
+                    step["state"] = "failed"
+                for tool in step.get("tools", []):
+                    if tool["state"] == "running":
+                        tool["state"] = "failed"
+
         stage: str | None = None
         if opt_in and not steps and not is_final:
             steps.append(
@@ -997,32 +1065,60 @@ class _MapsKeyEventConverter(A2uiEventConverter):
                         ),
                     ),
                 )
-        elif not opt_in and is_final and steps:
-            has_working_answer = any(
-                getattr(getattr(e, "status", None), "state", None) == TaskState.working
-                and getattr(getattr(e, "status", None), "message", None) is not None
-                for e in a2a_events
+        elif not opt_in:
+            all_done = bool(steps) and all(
+                s["state"] in ("done", "failed") for s in steps
             )
-            if has_working_answer:
-                native_text = _progress_status_text(
-                    steps, stage or "Complete", done=all_done
-                )
-                a2a_events.insert(
-                    0,
-                    TaskStatusUpdateEvent(
-                        task_id=task_id,
-                        context_id=context_id,
-                        final=False,
-                        status=TaskStatus(
-                            state=TaskState.working,
-                            message=Message(
-                                message_id=uuid.uuid4().hex,
-                                role=Role.agent,
-                                parts=[Part(root=TextPart(text=native_text))],
+            text, pct = _get_single_line_progress(
+                steps, done=all_done or is_final, failed=failed
+            )
+            if text:
+                last_pct = progress.get("last_native_pct", 0)
+                last_text = progress.get("last_emitted_text")
+
+                # Enforce monotonicity
+                if pct < last_pct:
+                    pct = last_pct
+                    if text.startswith("▸ ") and " (" in text:
+                        prefix = text.split(" (")[0]
+                        text = f"{prefix} ({pct}%)"
+
+                progress["last_native_pct"] = pct
+
+                # Enforce deduplication
+                if text != last_text:
+                    progress["last_emitted_text"] = text
+
+                    extra_parts = [Part(root=TextPart(text=text))]
+
+                    for a2a_event in a2a_events:
+                        status = getattr(a2a_event, "status", None)
+                        msg = getattr(status, "message", None)
+                        if (
+                            status is not None
+                            and getattr(status, "state", None) == TaskState.working
+                            and msg is not None
+                        ):
+                            msg.parts = (msg.parts or []) + extra_parts
+                            extra_parts = []
+                            break
+                    if extra_parts:
+                        a2a_events.insert(
+                            0,
+                            TaskStatusUpdateEvent(
+                                task_id=task_id,
+                                context_id=context_id,
+                                final=False,
+                                status=TaskStatus(
+                                    state=TaskState.working,
+                                    message=Message(
+                                        message_id=uuid.uuid4().hex,
+                                        role=Role.agent,
+                                        parts=extra_parts,
+                                    ),
+                                ),
                             ),
-                        ),
-                    ),
-                )
+                        )
 
         if is_final:
             self._progress.pop(inv_id, None)
