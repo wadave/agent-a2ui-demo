@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import logging
 import os
 import subprocess
@@ -26,15 +25,17 @@ from typing import Any
 import pytest
 import requests
 from a2a.types import (
+    GetTaskRequest,
+    GetTaskResponse,
     JSONRPCErrorResponse,
     Message,
+    MessageSendConfiguration,
     MessageSendParams,
     Part,
     Role,
     SendMessageRequest,
     SendMessageResponse,
-    SendStreamingMessageRequest,
-    SendStreamingMessageResponse,
+    TaskQueryParams,
     TextPart,
 )
 from requests.exceptions import RequestException
@@ -126,83 +127,6 @@ def server_fixture(request: Any) -> Iterator[subprocess.Popen[str]]:
     yield server_process
 
 
-def test_chat_stream(server_fixture: subprocess.Popen[str]) -> None:
-    """Test the chat stream functionality using A2A JSON-RPC protocol."""
-    logger.info("Starting chat stream test")
-
-    message = Message(
-        message_id=f"msg-user-{uuid.uuid4()}",
-        role=Role.user,
-        parts=[Part(root=TextPart(text="Hi!"))],
-    )
-
-    request = SendStreamingMessageRequest(
-        id="test-req-001",
-        params=MessageSendParams(message=message),
-    )
-
-    # Send the request
-    response = requests.post(
-        A2A_RPC_URL,
-        headers=HEADERS,
-        json=request.model_dump(mode="json", exclude_none=True),
-        stream=True,
-        timeout=60,
-    )
-    assert response.status_code == 200
-
-    # Parse streaming JSON-RPC responses
-    responses: list[SendStreamingMessageResponse] = []
-
-    for line in response.iter_lines():
-        if line:
-            line_str = line.decode("utf-8")
-            if line_str.startswith("data: "):
-                event_json = line_str[6:]
-                json_data = json.loads(event_json)
-                streaming_response = SendStreamingMessageResponse.model_validate(
-                    json_data
-                )
-                responses.append(streaming_response)
-
-    assert responses, "No responses received from stream"
-
-    # Check for final status update
-    final_responses = [
-        r.root
-        for r in responses
-        if hasattr(r.root, "result")
-        and hasattr(r.root.result, "final")
-        and r.root.result.final is True
-    ]
-    assert final_responses, "No final response received"
-
-    final_response = final_responses[-1]
-    assert final_response.result.kind == "status-update"
-    assert hasattr(final_response.result, "status")
-    assert final_response.result.status.state == "completed"
-
-    # Check for artifact content
-    artifact_responses = [
-        r.root
-        for r in responses
-        if hasattr(r.root, "result") and r.root.result.kind == "artifact-update"
-    ]
-    assert artifact_responses, "No artifact content received in stream"
-
-    # Verify text content is in the artifact
-    artifact_response = artifact_responses[-1]
-    assert hasattr(artifact_response.result, "artifact")
-    artifact = artifact_response.result.artifact
-    assert artifact.parts, "Artifact has no parts"
-
-    has_text = any(
-        part.root.kind == "text" and hasattr(part.root, "text") and part.root.text
-        for part in artifact.parts
-    )
-    assert has_text, "No text content found in artifact"
-
-
 def test_chat_non_streaming(server_fixture: subprocess.Popen[str]) -> None:
     """Test the non-streaming chat functionality using A2A JSON-RPC protocol."""
     logger.info("Starting non-streaming chat test")
@@ -254,9 +178,75 @@ def test_chat_non_streaming(server_fixture: subprocess.Popen[str]) -> None:
     assert has_text, "No text content found in artifact"
 
 
-def test_chat_stream_error_handling(server_fixture: subprocess.Popen[str]) -> None:
-    """Test the chat stream error handling with invalid A2A request."""
-    logger.info("Starting chat stream error handling test")
+def test_chat_nonblocking_polling(server_fixture: subprocess.Popen[str]) -> None:
+    """Test non-blocking message/send followed by tasks/get polling."""
+    logger.info("Starting non-blocking polling chat test")
+
+    message = Message(
+        message_id=f"msg-user-{uuid.uuid4()}",
+        role=Role.user,
+        parts=[Part(root=TextPart(text="Hi!"))],
+    )
+
+    send_request = SendMessageRequest(
+        id="test-req-polling-send",
+        params=MessageSendParams(
+            message=message,
+            configuration=MessageSendConfiguration(
+                blocking=False,
+                historyLength=100,
+            ),
+        ),
+    )
+
+    response = requests.post(
+        A2A_RPC_URL,
+        headers=HEADERS,
+        json=send_request.model_dump(mode="json", exclude_none=True),
+        timeout=60,
+    )
+    assert response.status_code == 200
+
+    send_response = SendMessageResponse.model_validate(response.json())
+    task = send_response.root.result
+    assert task.kind == "task"
+    assert task.id
+
+    deadline = time.time() + 60
+    saw_thinking_message = bool(task.status.message and task.status.message.parts)
+    while task.status.state != "completed":
+        assert time.time() < deadline, "Timed out polling task"
+        time.sleep(0.5)
+        get_request = GetTaskRequest(
+            id="test-req-polling-get",
+            params=TaskQueryParams(id=task.id, historyLength=100),
+        )
+        poll_response = requests.post(
+            A2A_RPC_URL,
+            headers=HEADERS,
+            json=get_request.model_dump(mode="json", exclude_none=True),
+            timeout=60,
+        )
+        assert poll_response.status_code == 200
+        task = GetTaskResponse.model_validate(poll_response.json()).root.result
+        if task.status.state != "completed":
+            saw_thinking_message = saw_thinking_message or bool(
+                task.status.message and task.status.message.parts
+            )
+
+    assert saw_thinking_message, "No working task.status.message was visible"
+    assert task.artifacts, "No artifacts in polled task"
+    has_text = any(
+        part.root.kind == "text" and hasattr(part.root, "text") and part.root.text
+        for artifact in task.artifacts
+        for part in artifact.parts
+    )
+    assert has_text, "No text content found in polled task artifact"
+
+
+def test_chat_send_error_handling(server_fixture: subprocess.Popen[str]) -> None:
+    """Test message/send error handling with an invalid A2A request."""
+    logger.info("Starting message/send error handling test")
 
     invalid_data = {
         "jsonrpc": "2.0",
@@ -328,3 +318,4 @@ def test_a2a_agent_json_generation(server_fixture: subprocess.Popen[str]) -> Non
         assert field in served_agent_card, (
             f"Missing required field in served agent card: {field}"
         )
+    assert served_agent_card["capabilities"].get("streaming") is False

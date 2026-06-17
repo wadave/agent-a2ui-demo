@@ -102,10 +102,11 @@ interface ProgressStep {
 
 const TAG = "a2ui-app-shell";
 const PROGRESS_SURFACE_PREFIX = "tool-progress-";
-const OVERALL_PROGRESS_START = 4;
+const OVERALL_PROGRESS_START = 5;
 const OVERALL_PROGRESS_MAX = 98;
 const INITIAL_PROGRESS_TARGET_MS = 8_000;
 const DEFAULT_STEP_TARGET_MS = 20_000;
+const MIN_PROGRESS_UPDATE_VISIBLE_MS = 650;
 const MIN_FINAL_STEP_VISIBLE_MS = 900;
 const COMPLETION_HOLD_MS = 250;
 const STEP_STATE_BY_MARKER: Record<string, ProgressStepState> = {
@@ -1194,13 +1195,28 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     this.scrollToBottom();
 
     const existingIds = new Set(this.#processor.getSurfaces().keys());
+    let lastProgressPaintAt = Date.now();
+    let progressQueue = Promise.resolve();
+    const enqueueProgressUpdate = (text: string, progressSteps?: unknown[]) => {
+      progressQueue = progressQueue.then(async () => {
+        const elapsedMs = Date.now() - lastProgressPaintAt;
+        const waitMs = Math.max(0, MIN_PROGRESS_UPDATE_VISIBLE_MS - elapsedMs);
+        if (waitMs > 0) {
+          await this.delay(waitMs);
+        }
+
+        this.addStage(text);
+        if (progressSteps) this.updateProgressFromMetadata(progressSteps);
+        this.scrollToBottom();
+        await this.updateComplete;
+        lastProgressPaintAt = Date.now();
+      });
+    };
 
     try {
       const response = await this.#client.send(message, {
         onStage: (text: string, progressSteps?: unknown[]) => {
-          this.addStage(text);
-          if (progressSteps) this.updateProgressFromMetadata(progressSteps);
-          this.scrollToBottom();
+          enqueueProgressUpdate(text, progressSteps);
         },
         onA2UIMessage: (a2uiMessages) => {
           this.processLiveA2UI(a2uiMessages);
@@ -1208,6 +1224,7 @@ export class A2UIShell extends SignalWatcher(LitElement) {
         },
       });
 
+      await progressQueue;
       await this.holdFastFinalStepBeforeResult();
 
       if (response.a2uiMessages.length > 0) {
@@ -1238,6 +1255,9 @@ export class A2UIShell extends SignalWatcher(LitElement) {
         },
       ];
     } catch (err) {
+      await progressQueue.catch((queueErr) => {
+        console.warn("[A2UI] Progress update failed:", queueErr);
+      });
       console.error("[A2UI] Error:", err);
       this.error = `${err}`;
     } finally {
@@ -1383,6 +1403,11 @@ export class A2UIShell extends SignalWatcher(LitElement) {
       return this.getInitialProgressTarget();
     }
 
+    const toolTarget = this.getOverallToolProgressTarget();
+    if (toolTarget !== null) {
+      return toolTarget;
+    }
+
     const weights = this.progressSteps.map((step) => this.getStepWeight(step));
     const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
     if (totalWeight <= 0) return null;
@@ -1395,6 +1420,24 @@ export class A2UIShell extends SignalWatcher(LitElement) {
     const allDone = this.progressSteps.every((step) => step.state === "done");
     const target = (weightedProgress / totalWeight) * 100;
     return allDone ? 100 : Math.min(OVERALL_PROGRESS_MAX, target);
+  }
+
+  private getOverallToolProgressTarget() {
+    const totalTools = this.progressSteps.reduce(
+      (sum, step) => sum + Math.max(step.totalTools, step.tools.length),
+      0,
+    );
+    if (totalTools === 0) return null;
+
+    const completedTools = this.progressSteps.reduce((sum, step) => {
+      const total = Math.max(step.totalTools, step.tools.length);
+      return sum + Math.max(0, Math.min(step.completedTools, total));
+    }, 0);
+    const allDone = this.progressSteps.every((step) => step.state === "done");
+    if (allDone && completedTools >= totalTools) return 100;
+
+    const target = Math.round((completedTools / totalTools) * 100);
+    return Math.max(OVERALL_PROGRESS_START, Math.min(OVERALL_PROGRESS_MAX, target));
   }
 
   private isOnlyInitialUnderstandingStep() {

@@ -42,7 +42,7 @@ def test_agent_card_has_capabilities():
     agent = RestaurantFinderAgent(base_url="http://localhost:8000")
     card = agent.agent_card
     assert card.capabilities is not None
-    assert card.capabilities.streaming is True
+    assert card.capabilities.streaming is False
 
 
 def test_agent_card_url():

@@ -1163,7 +1163,11 @@ class RestaurantFinderAgent:
             extensions.append(ext)
 
         capabilities = AgentCapabilities(
-            streaming=True,
+            # GE's native thinking panel is append-only and should consume this
+            # agent through message/send + tasks/get polling. The public card
+            # therefore disables streaming so A2A clients should not call
+            # message/stream.
+            streaming=False,
             extensions=extensions,
         )
 

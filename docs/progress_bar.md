@@ -5,8 +5,17 @@ the A2UI demo.
 
 The active implementation is intentionally split into two responsibilities:
 
-- Backend progress state is emitted as compact metadata on A2A/SSE text parts.
-- Frontend rendering owns the visual progress bars and linear animation.
+- Backend progress state is emitted as compact metadata on A2A text parts.
+- The custom Lit frontend owns the visual progress bars and linear animation.
+- Gemini Enterprise's native thinking panel is append-only. It cannot
+  dynamically update an in-place progress bar, so GE receives chronological
+  text progress lines such as `5%`, `50%`, then `100%`.
+- The public agent card advertises `capabilities.streaming: false`, so GE
+  should use `message/send` plus `tasks/get` polling rather than
+  `message/stream`.
+- While a polled GE task is not completed, GE displays `task.status.message`
+  in the Thinking tab. Once the task is completed, GE renders `task.artifacts`
+  as the output.
 
 This avoids asking the model to render progress UI, and it avoids sending extra
 A2UI progress surfaces during the hot path.
@@ -18,7 +27,8 @@ requests should use the metadata path described below.
 
 ## End-To-End Flow
 
-1. The frontend sends the user message with progress opt-in metadata.
+1. The frontend sends the user message with progress opt-in metadata. The
+   custom Lit shell uses non-blocking `message/send` and polls `tasks/get`.
 
    File: `frontend/src/client.ts`
 
@@ -60,11 +70,12 @@ requests should use the metadata path described below.
    }
    ```
 
-5. The frontend SSE client treats those tagged text parts as progress events,
-   not answer text. It calls `onStage(text, progressSteps)`.
+5. The frontend polling client treats those tagged text parts as progress
+   events, not answer text. It calls `onStage(text, progressSteps)`.
 
 6. The Lit app stores `progressSteps`, renders the thinking panel, and computes
-   the overall progress percentage from weighted step progress.
+   the overall progress percentage from aggregate tool completion when possible,
+   falling back to weighted step progress when no tools are known.
 
 Current opt-in requests do not send a separate A2UI progress surface. Normal
 answer surfaces still arrive as A2UI data parts, but progress state itself is
@@ -250,11 +261,25 @@ if is_final:
     self._progress.pop(inv_id, None)
 ```
 
+For GE/non-opt-in requests, `RestaurantFinderExecutor` also runs a native
+progress heartbeat while tools are active. The heartbeat emits
+`TaskStatusUpdateEvent(state=working, message=...)` updates with estimated,
+deduplicated percentages. The default A2A task store persists those updates as
+the current `task.status.message`, which is what GE reads on each `tasks/get`
+poll.
+
+GE/non-opt-in requests also hold the last working status briefly before the
+completed task and artifacts are emitted. Without that final hold, a fast task
+can finish between GE polls and the Thinking tab can be skipped entirely.
+
 ## Frontend Client
 
 File: `frontend/src/client.ts`
 
-The client uses `message/stream` and reads Server-Sent Events.
+The client uses non-blocking `message/send` and then polls `tasks/get`. Each
+polled task snapshot can contain progress messages in `history` or in the
+current `status.message`. The client replays unseen tagged progress parts and
+deduplicates them by text plus progress-step metadata.
 
 Progress parts are detected by metadata:
 
@@ -332,7 +357,7 @@ the local animation remains smooth across repeated backend metadata updates.
 `startProgressTimer()`:
 
 - stores request start time,
-- sets overall progress to 4 percent,
+- sets overall progress to 5 percent,
 - creates a local active "Understanding request" step,
 - starts a 300ms timer.
 
@@ -370,6 +395,11 @@ const visualStartedAt =
 
 After merging, `syncProgressPercentToSteps()` updates the overall bar
 immediately instead of waiting for the next timer tick.
+
+`sendAndProcess()` queues progress-stage paints with
+`MIN_PROGRESS_UPDATE_VISIBLE_MS`. This gives tightly coalesced backend events
+separate render frames, so an intermediate milestone such as `50%` is not
+immediately overwritten by `100%` before the browser paints it.
 
 The merge matches both the full step key and a stable `index:title` fallback.
 That prevents repeated backend metadata updates from resetting an active
@@ -426,16 +456,21 @@ waiting bar before the fast render tool starts.
 
 ### Overall Progress Math
 
-The overall bar is no longer a fixed 90 second timer. It is computed from step
+The overall bar is no longer a fixed 90 second timer. When tool metadata is
+available, it is computed from aggregate tool completion so known milestones
+are visible. For the restaurant flow, two known tools produce `5%` while the
+search tool is running, `50%` after search completes, and `100%` when the
+dashboard step completes. When there are no tools, it falls back to step
 weights and each step's visual percent.
 
 Relevant constants:
 
 ```ts
-const OVERALL_PROGRESS_START = 4;
+const OVERALL_PROGRESS_START = 5;
 const OVERALL_PROGRESS_MAX = 98;
 const INITIAL_PROGRESS_TARGET_MS = 8_000;
 const DEFAULT_STEP_TARGET_MS = 20_000;
+const MIN_PROGRESS_UPDATE_VISIBLE_MS = 650;
 const MIN_FINAL_STEP_VISIBLE_MS = 900;
 const COMPLETION_HOLD_MS = 250;
 ```
@@ -460,10 +495,9 @@ if (title.includes("compiling dashboard")) return 4;
 return Math.max(10, this.getStepEstimatedMs(step) / 1000);
 ```
 
-For the restaurant query, this means the long Google Maps search owns most of
-the top-level progress. That prevents the old behavior where a fixed timer
-ended around 49 percent and then jumped to 100 percent when the request
-completed.
+For non-tool work, this means longer steps own more of the fallback top-level
+progress. For tool-backed work, aggregate tool completion takes precedence so
+discrete milestones such as `50%` cannot be hidden by elapsed-time weighting.
 
 The initial local-only "Understanding request" step is special-cased. While it
 is the only step, the overall bar uses `getInitialProgressTarget()` instead of
@@ -582,18 +616,23 @@ npm run build
 git diff --check
 ```
 
-To inspect raw streamed progress, send a direct A2A request and search for
-`a2uiProgressSteps` in the SSE output:
+To inspect stored progress from the polling path, send a non-blocking A2A
+request, poll the task, and search for `a2uiProgressSteps` in the task JSON:
 
 ```sh
-curl -sS -N -o /tmp/a2a-progress.sse \
+TASK_ID=$(curl -sS \
   -H 'Content-Type: application/json' \
-  -H 'Accept: text/event-stream' \
+  -H 'Accept: application/json' \
   -H 'X-A2A-Extensions: https://a2ui.org/a2a-extension/a2ui/v0.8' \
-  --data-raw '{"jsonrpc":"2.0","method":"message/stream","id":1,"params":{"message":{"messageId":"debug-1","contextId":"debug-context-1","role":"user","parts":[{"kind":"text","text":"find 5 restaurants near google plv office"}],"kind":"message","metadata":{"a2uiProgress":true}}}}' \
-  http://127.0.0.1:8001/
+  --data-raw '{"jsonrpc":"2.0","method":"message/send","id":1,"params":{"configuration":{"blocking":false,"historyLength":100},"message":{"messageId":"debug-1","contextId":"debug-context-1","role":"user","parts":[{"kind":"text","text":"find 5 restaurants near google plv office"}],"kind":"message","metadata":{"a2uiProgress":true}}}}' \
+  http://127.0.0.1:8001/ | jq -r '.result.id')
 
-grep -n 'a2uiProgressSteps' /tmp/a2a-progress.sse
+curl -sS \
+  -H 'Content-Type: application/json' \
+  --data-raw "{\"jsonrpc\":\"2.0\",\"method\":\"tasks/get\",\"id\":2,\"params\":{\"id\":\"$TASK_ID\",\"historyLength\":100}}" \
+  http://127.0.0.1:8001/ > /tmp/a2a-progress-task.json
+
+grep -n 'a2uiProgressSteps' /tmp/a2a-progress-task.json
 ```
 
 Common symptoms:

@@ -14,18 +14,24 @@
 
 """Agent executor for GE UI with A2UI extension support."""
 
+import asyncio
 import logging
 import re
+import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any, override
 from urllib.parse import parse_qs, urlencode
 
 from a2a.server.agent_execution import RequestContext
+from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
+    Artifact,
     DataPart,
     Message,
     Part,
     Role,
+    TaskArtifactUpdateEvent,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
@@ -38,20 +44,33 @@ from a2ui.adk.send_a2ui_to_client_toolset import (
 )
 from a2ui.schema.constants import A2UI_CLIENT_CAPABILITIES_KEY, VERSION_0_8, VERSION_0_9
 from google.adk.a2a.converters.request_converter import AgentRunRequest
+from google.adk.a2a.converters.utils import _get_adk_metadata_key
 from google.adk.a2a.executor.a2a_agent_executor import (
     A2aAgentExecutor,
     A2aAgentExecutorConfig,
 )
+from google.adk.a2a.executor.executor_context import ExecutorContext
+from google.adk.a2a.executor.task_result_aggregator import TaskResultAggregator
+from google.adk.a2a.executor.utils import (
+    execute_after_agent_interceptors,
+    execute_after_event_interceptors,
+)
 from google.adk.agents.invocation_context import new_invocation_context_id
 from google.adk.events.event import Event
 from google.adk.events.event_actions import EventActions
+from google.adk.platform import time as platform_time
+from google.adk.platform import uuid as platform_uuid
 from google.adk.runners import Runner
+from google.adk.utils.context_utils import Aclosing
 
 from app.agent import RestaurantFinderAgent
 from app.config import A2UI_EXTENSION_URI_V0_8, get_google_maps_api_key
 from app.session_keys import A2UI_CATALOG_KEY, A2UI_ENABLED_KEY, A2UI_EXAMPLES_KEY
 
 logger = logging.getLogger(__name__)
+
+NATIVE_PROGRESS_HEARTBEAT_INTERVAL_SECS = 0.75
+NATIVE_PROGRESS_FINAL_HOLD_SECS = 2.0
 
 # Matches the /maps/embed proxy URL produced by the LLM.
 _MAPS_PROXY_RE = re.compile(r"^/maps/embed\?(.+)$")
@@ -748,6 +767,58 @@ def _get_single_line_progress(
     return f"▸ {title}... ({pct}%)", pct
 
 
+def _get_estimated_single_line_progress(
+    steps: list[dict[str, Any]],
+    *,
+    now: float | None = None,
+) -> tuple[str | None, int]:
+    """Build an estimated native progress line while the active tool is running."""
+    if not steps:
+        return None, 0
+    active_step = next((s for s in steps if s.get("state") == "active"), None)
+    if not active_step:
+        return _get_single_line_progress(steps)
+
+    title = active_step.get("title", "Thinking")
+    done_tools = sum(
+        1 for s in steps for t in s.get("tools", []) if t.get("state") == "done"
+    )
+    total_tools = sum(len(s.get("tools", [])) for s in steps)
+    if total_tools <= 0:
+        return _get_single_line_progress(steps)
+
+    active_started_at = active_step.get("active_started_at")
+    if not isinstance(active_started_at, (int, float)):
+        return _get_single_line_progress(steps)
+
+    current = now if now is not None else time.monotonic()
+    elapsed_secs = max(0.0, current - active_started_at)
+    title_lower = str(title).lower()
+    if "searching for restaurants" in title_lower:
+        estimated_secs = 32.0
+    elif "compiling dashboard" in title_lower:
+        estimated_secs = 3.0
+    else:
+        estimated_secs = 20.0
+
+    phase_start = done_tools / total_tools * 100
+    phase_end = min(95.0, (done_tools + 1) / total_tools * 100)
+    elapsed_ratio = min(1.0, elapsed_secs / estimated_secs)
+    pct = round(phase_start + (phase_end - phase_start) * elapsed_ratio)
+    milestones = [5, 25, 40, 60, 75, 90, 95]
+    phase_milestones = [
+        milestone
+        for milestone in milestones
+        if phase_start < milestone < phase_end and milestone <= pct
+    ]
+    if phase_milestones:
+        pct = max(phase_milestones)
+    else:
+        pct = round(phase_start)
+    pct = max(5, min(95, pct))
+    return f"▸ {title}... ({pct}%)", pct
+
+
 def _progress_status_parts(
     surface_id: str,
     steps: list[dict[str, Any]],
@@ -914,6 +985,7 @@ class _MapsKeyEventConverter(A2uiEventConverter):
             if existing_step:
                 existing_step["state"] = "active"
                 existing_step["call_key"] = call_key
+                existing_step["active_started_at"] = time.monotonic()
                 existing_step["tools"] = [
                     {
                         "name": c["name"],
@@ -941,6 +1013,7 @@ class _MapsKeyEventConverter(A2uiEventConverter):
                     "detail": detail,
                     "state": "active",
                     "call_key": call_key,
+                    "active_started_at": time.monotonic(),
                     "tools": [
                         {
                             "name": c["name"],
@@ -955,7 +1028,12 @@ class _MapsKeyEventConverter(A2uiEventConverter):
                 _append_pending_dashboard_step(steps)
             stage = f"{title}...\n{detail}"
 
-        if has_text and not function_calls and event.is_final_response():
+        if (
+            has_text
+            and not function_calls
+            and not function_responses
+            and event.is_final_response()
+        ):
             for step in steps:
                 if step["state"] == "active":
                     step["state"] = "done"
@@ -1069,10 +1147,25 @@ class _MapsKeyEventConverter(A2uiEventConverter):
             all_done = bool(steps) and all(
                 s["state"] in ("done", "failed") for s in steps
             )
-            text, pct = _get_single_line_progress(
-                steps, done=all_done or is_final, failed=failed
+
+            native_updates: list[tuple[str | None, int]] = []
+            if is_final and not all_done and steps:
+                # Preserve the last in-flight transition before the final
+                # completion event. ADK can coalesce a tool response and final
+                # text into the same event; without this, GE jumps from the
+                # previous status directly to 100%.
+                native_updates.append(_get_single_line_progress(steps, failed=failed))
+            native_updates.append(
+                _get_single_line_progress(
+                    steps, done=all_done or is_final, failed=failed
+                )
             )
-            if text:
+
+            insert_at = 0
+            force_separate_progress_events = len(native_updates) > 1
+            for text, pct in native_updates:
+                if not text:
+                    continue
                 last_pct = progress.get("last_native_pct", 0)
                 last_text = progress.get("last_emitted_text")
 
@@ -1091,20 +1184,21 @@ class _MapsKeyEventConverter(A2uiEventConverter):
 
                     extra_parts = [Part(root=TextPart(text=text))]
 
-                    for a2a_event in a2a_events:
-                        status = getattr(a2a_event, "status", None)
-                        msg = getattr(status, "message", None)
-                        if (
-                            status is not None
-                            and getattr(status, "state", None) == TaskState.working
-                            and msg is not None
-                        ):
-                            msg.parts = (msg.parts or []) + extra_parts
-                            extra_parts = []
-                            break
+                    if not force_separate_progress_events:
+                        for a2a_event in a2a_events:
+                            status = getattr(a2a_event, "status", None)
+                            msg = getattr(status, "message", None)
+                            if (
+                                status is not None
+                                and getattr(status, "state", None) == TaskState.working
+                                and msg is not None
+                            ):
+                                msg.parts = (msg.parts or []) + extra_parts
+                                extra_parts = []
+                                break
                     if extra_parts:
                         a2a_events.insert(
-                            0,
+                            insert_at,
                             TaskStatusUpdateEvent(
                                 task_id=task_id,
                                 context_id=context_id,
@@ -1119,9 +1213,55 @@ class _MapsKeyEventConverter(A2uiEventConverter):
                                 ),
                             ),
                         )
+                        insert_at += 1
 
         if is_final:
             self._progress.pop(inv_id, None)
+
+    def native_progress_heartbeat(
+        self,
+        invocation_id: str,
+        task_id: str,
+        context_id: str,
+    ) -> TaskStatusUpdateEvent | None:
+        """Create a native text progress heartbeat for append-only GE polling."""
+        progress = self._progress.get(invocation_id)
+        if not progress:
+            return None
+        steps = progress.get("steps") or []
+        if not any(step.get("state") == "active" for step in steps):
+            return None
+
+        text, pct = _get_estimated_single_line_progress(steps)
+        if not text:
+            return None
+
+        last_pct = progress.get("last_native_pct", 0)
+        last_text = progress.get("last_emitted_text")
+        if pct < last_pct:
+            pct = last_pct
+            if text.startswith("▸ ") and " (" in text:
+                prefix = text.split(" (")[0]
+                text = f"{prefix} ({pct}%)"
+
+        if text == last_text:
+            return None
+
+        progress["last_native_pct"] = pct
+        progress["last_emitted_text"] = text
+        return TaskStatusUpdateEvent(
+            task_id=task_id,
+            context_id=context_id,
+            final=False,
+            status=TaskStatus(
+                state=TaskState.working,
+                message=Message(
+                    message_id=uuid.uuid4().hex,
+                    role=Role.agent,
+                    parts=[Part(root=TextPart(text=text))],
+                ),
+            ),
+        )
 
     def __call__(
         self,
@@ -1188,6 +1328,188 @@ class RestaurantFinderExecutor(A2aAgentExecutor):
             config=config,
             use_legacy=True,
         )
+
+    async def _native_progress_heartbeat_loop(
+        self,
+        *,
+        event_queue: EventQueue,
+        invocation_id: str,
+        task_id: str,
+        context_id: str,
+        stop_event: asyncio.Event,
+    ) -> None:
+        converter = self._config.event_converter
+        if not isinstance(converter, _MapsKeyEventConverter):
+            return
+        while not stop_event.is_set():
+            try:
+                await asyncio.wait_for(
+                    stop_event.wait(),
+                    timeout=NATIVE_PROGRESS_HEARTBEAT_INTERVAL_SECS,
+                )
+            except asyncio.TimeoutError:
+                heartbeat = converter.native_progress_heartbeat(
+                    invocation_id,
+                    task_id,
+                    context_id,
+                )
+                if heartbeat is not None:
+                    await event_queue.enqueue_event(heartbeat)
+
+    @override
+    async def _handle_request(
+        self,
+        context: RequestContext,
+        event_queue: EventQueue,
+    ):
+        runner = await self._resolve_runner()
+
+        run_request = self._config.request_converter(
+            context,
+            self._config.a2a_part_converter,
+        )
+
+        session = await self._prepare_session(context, run_request, runner)
+
+        invocation_context = runner._new_invocation_context(
+            session=session,
+            new_message=run_request.new_message,
+            run_config=run_request.run_config,
+        )
+
+        executor_context = ExecutorContext(
+            app_name=runner.app_name,
+            user_id=run_request.user_id,
+            session_id=run_request.session_id,
+            runner=runner,
+        )
+
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                task_id=context.task_id,
+                status=TaskStatus(
+                    state=TaskState.working,
+                    timestamp=datetime.fromtimestamp(
+                        platform_time.get_time(), tz=timezone.utc
+                    ).isoformat(),
+                    message=(
+                        None
+                        if session.state.get(PROGRESS_OPT_IN_KEY)
+                        else Message(
+                            message_id=uuid.uuid4().hex,
+                            role=Role.agent,
+                            parts=[
+                                Part(
+                                    root=TextPart(
+                                        text="▸ Understanding request... (5%)"
+                                    )
+                                )
+                            ],
+                        )
+                    ),
+                ),
+                context_id=context.context_id,
+                final=False,
+                metadata={
+                    _get_adk_metadata_key("app_name"): runner.app_name,
+                    _get_adk_metadata_key("user_id"): run_request.user_id,
+                    _get_adk_metadata_key("session_id"): run_request.session_id,
+                },
+            )
+        )
+
+        stop_heartbeat = asyncio.Event()
+        heartbeat_task: asyncio.Task | None = None
+        if not session.state.get(PROGRESS_OPT_IN_KEY):
+            heartbeat_task = asyncio.create_task(
+                self._native_progress_heartbeat_loop(
+                    event_queue=event_queue,
+                    invocation_id=invocation_context.invocation_id,
+                    task_id=context.task_id,
+                    context_id=context.context_id,
+                    stop_event=stop_heartbeat,
+                )
+            )
+
+        task_result_aggregator = TaskResultAggregator()
+        try:
+            async with Aclosing(runner.run_async(**vars(run_request))) as agen:
+                async for adk_event in agen:
+                    for a2a_event in self._config.event_converter(
+                        adk_event,
+                        invocation_context,
+                        context.task_id,
+                        context.context_id,
+                        self._config.gen_ai_part_converter,
+                    ):
+                        a2a_events = await execute_after_event_interceptors(
+                            a2a_event,
+                            executor_context,
+                            adk_event,
+                            self._config.execute_interceptors,
+                        )
+                        for e in a2a_events:
+                            task_result_aggregator.process_event(e)
+                            await event_queue.enqueue_event(e)
+        finally:
+            stop_heartbeat.set()
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    pass
+
+        if not session.state.get(PROGRESS_OPT_IN_KEY):
+            await asyncio.sleep(NATIVE_PROGRESS_FINAL_HOLD_SECS)
+
+        if (
+            task_result_aggregator.task_state == TaskState.working
+            and task_result_aggregator.task_status_message is not None
+            and task_result_aggregator.task_status_message.parts
+        ):
+            await event_queue.enqueue_event(
+                TaskArtifactUpdateEvent(
+                    task_id=context.task_id,
+                    last_chunk=True,
+                    context_id=context.context_id,
+                    artifact=Artifact(
+                        artifact_id=platform_uuid.new_uuid(),
+                        parts=task_result_aggregator.task_status_message.parts,
+                    ),
+                )
+            )
+            final_event = TaskStatusUpdateEvent(
+                task_id=context.task_id,
+                status=TaskStatus(
+                    state=TaskState.completed,
+                    timestamp=datetime.fromtimestamp(
+                        platform_time.get_time(), tz=timezone.utc
+                    ).isoformat(),
+                ),
+                context_id=context.context_id,
+                final=True,
+            )
+        else:
+            final_event = TaskStatusUpdateEvent(
+                task_id=context.task_id,
+                status=TaskStatus(
+                    state=task_result_aggregator.task_state,
+                    timestamp=datetime.fromtimestamp(
+                        platform_time.get_time(), tz=timezone.utc
+                    ).isoformat(),
+                    message=task_result_aggregator.task_status_message,
+                ),
+                context_id=context.context_id,
+                final=True,
+            )
+
+        final_event = await execute_after_agent_interceptors(
+            executor_context,
+            final_event,
+            self._config.execute_interceptors,
+        )
+        await event_queue.enqueue_event(final_event)
 
     @override
     async def _prepare_session(

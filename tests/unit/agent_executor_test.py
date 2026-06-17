@@ -37,6 +37,9 @@ from app.agent import (
     _restaurant_list_llm_response,
 )
 from app.agent_executor import (
+    PROGRESS_STAGE_META,
+    PROGRESS_STEPS_META,
+    _get_estimated_single_line_progress,
     _get_single_line_progress,
     _MapsKeyEventConverter,
     _process_a2ui_parts,
@@ -301,6 +304,61 @@ def test_get_single_line_progress_failed():
     assert pct == 0
 
 
+def test_get_estimated_single_line_progress_quantizes_running_tool_milestones():
+    steps = [
+        {
+            "title": "Searching for restaurants",
+            "state": "active",
+            "active_started_at": 100.0,
+            "tools": [{"name": "find_restaurants", "state": "running"}],
+        },
+        {
+            "title": "Compiling dashboard",
+            "state": "pending",
+            "tools": [{"name": "send_a2ui_json_to_client", "state": "pending"}],
+        },
+    ]
+
+    text, pct = _get_estimated_single_line_progress(steps, now=116.0)
+    assert text == "▸ Searching for restaurants... (25%)"
+    assert pct == 25
+
+    text, pct = _get_estimated_single_line_progress(steps, now=128.0)
+    assert text == "▸ Searching for restaurants... (40%)"
+    assert pct == 40
+
+
+def test_native_progress_heartbeat_updates_task_status_message():
+    conv = _MapsKeyEventConverter()
+    conv._progress["heartbeat-inv"] = {
+        "steps": [
+            {
+                "title": "Searching for restaurants",
+                "state": "active",
+                "active_started_at": 100.0,
+                "tools": [{"name": "find_restaurants", "state": "running"}],
+            },
+            {
+                "title": "Compiling dashboard",
+                "state": "pending",
+                "tools": [{"name": "send_a2ui_json_to_client", "state": "pending"}],
+            },
+        ],
+        "surface_id": "tool-progress-test",
+        "begin_sent": False,
+        "last_native_pct": 5,
+        "last_emitted_text": "▸ Searching for restaurants... (5%)",
+    }
+
+    event = conv.native_progress_heartbeat("heartbeat-inv", "task-1", "ctx-1")
+
+    assert event is not None
+    assert event.status.state == TaskState.working
+    assert event.status.message.parts[0].root.text.startswith(
+        "▸ Searching for restaurants..."
+    )
+
+
 def _multi_tool_call_event(calls: list[tuple[str, str]]):
     return SimpleNamespace(
         content=SimpleNamespace(
@@ -331,6 +389,247 @@ def _multi_tool_response_event(responses: list[tuple[str, str]]):
         ),
         is_final_response=lambda: False,
     )
+
+
+def _coalesced_final_tool_response_event(name="find_restaurants", call_id="call-1"):
+    return SimpleNamespace(
+        content=SimpleNamespace(
+            parts=[
+                SimpleNamespace(
+                    text=None,
+                    function_call=None,
+                    function_response=SimpleNamespace(name=name, id=call_id),
+                ),
+                SimpleNamespace(
+                    text="Here are 5 restaurants near Google Playa Vista",
+                    function_call=None,
+                    function_response=None,
+                ),
+            ]
+        ),
+        is_final_response=lambda: True,
+    )
+
+
+def test_native_progress_keeps_intermediate_update_when_final_event_is_coalesced():
+    class MockSession:
+        def __init__(self):
+            self.state = {"system:a2ui_progress": False}
+
+    class MockContext:
+        def __init__(self):
+            self.invocation_id = "coalesced-final"
+            self.session = MockSession()
+
+    conv = _MapsKeyEventConverter()
+    context = MockContext()
+
+    conv._enrich_with_progress(
+        _tool_call_event("find_restaurants", "call-1"),
+        context,
+        [],
+        "t1",
+        "c1",
+    )
+
+    final_event = TaskStatusUpdateEvent(
+        task_id="t1",
+        context_id="c1",
+        final=True,
+        status=TaskStatus(
+            state=TaskState.completed,
+            message=Message(
+                message_id=uuid.uuid4().hex,
+                role=Role.agent,
+                parts=[
+                    Part(
+                        root=TextPart(
+                            text="Here are 5 restaurants near Google Playa Vista"
+                        )
+                    )
+                ],
+            ),
+        ),
+    )
+    a2a_events = [final_event]
+
+    conv._enrich_with_progress(
+        _coalesced_final_tool_response_event("find_restaurants", "call-1"),
+        context,
+        a2a_events,
+        "t1",
+        "c1",
+    )
+
+    progress_texts = [
+        part.root.text
+        for event in a2a_events
+        if getattr(getattr(event, "status", None), "state", None) == TaskState.working
+        for part in (event.status.message.parts or [])
+        if isinstance(part.root, TextPart)
+    ]
+
+    assert progress_texts == [
+        "▸ Compiling dashboard... (50%)",
+        "✓ Complete (100%)",
+    ]
+
+
+def test_coalesced_final_progress_uses_separate_working_events():
+    class MockSession:
+        def __init__(self):
+            self.state = {"system:a2ui_progress": False}
+
+    class MockContext:
+        def __init__(self):
+            self.invocation_id = "coalesced-final-existing-working"
+            self.session = MockSession()
+
+    conv = _MapsKeyEventConverter()
+    context = MockContext()
+
+    conv._enrich_with_progress(
+        _tool_call_event("find_restaurants", "call-1"),
+        context,
+        [],
+        "t1",
+        "c1",
+    )
+
+    existing_working_event = TaskStatusUpdateEvent(
+        task_id="t1",
+        context_id="c1",
+        final=False,
+        status=TaskStatus(
+            state=TaskState.working,
+            message=Message(
+                message_id=uuid.uuid4().hex,
+                role=Role.agent,
+                parts=[],
+            ),
+        ),
+    )
+    final_event = TaskStatusUpdateEvent(
+        task_id="t1",
+        context_id="c1",
+        final=True,
+        status=TaskStatus(
+            state=TaskState.completed,
+            message=Message(
+                message_id=uuid.uuid4().hex,
+                role=Role.agent,
+                parts=[
+                    Part(
+                        root=TextPart(
+                            text="Here are 5 restaurants near Google Playa Vista"
+                        )
+                    )
+                ],
+            ),
+        ),
+    )
+    a2a_events = [existing_working_event, final_event]
+
+    conv._enrich_with_progress(
+        _coalesced_final_tool_response_event("find_restaurants", "call-1"),
+        context,
+        a2a_events,
+        "t1",
+        "c1",
+    )
+
+    progress_events = [
+        event
+        for event in a2a_events
+        if getattr(getattr(event, "status", None), "state", None) == TaskState.working
+        and event.status.message.parts
+    ]
+    progress_texts_by_event = [
+        [
+            part.root.text
+            for part in event.status.message.parts
+            if isinstance(part.root, TextPart)
+        ]
+        for event in progress_events
+    ]
+
+    assert progress_texts_by_event[:2] == [
+        ["▸ Compiling dashboard... (50%)"],
+        ["✓ Complete (100%)"],
+    ]
+
+
+def test_opt_in_progress_emits_coalesced_final_metadata_milestone():
+    class MockSession:
+        def __init__(self):
+            self.state = {"system:a2ui_progress": True}
+
+    class MockContext:
+        def __init__(self):
+            self.invocation_id = "opt-in-coalesced-final"
+            self.session = MockSession()
+
+    conv = _MapsKeyEventConverter()
+    context = MockContext()
+
+    conv._enrich_with_progress(
+        _tool_call_event("find_restaurants", "call-1"),
+        context,
+        [],
+        "t1",
+        "c1",
+    )
+
+    final_event = TaskStatusUpdateEvent(
+        task_id="t1",
+        context_id="c1",
+        final=True,
+        status=TaskStatus(
+            state=TaskState.completed,
+            message=Message(
+                message_id=uuid.uuid4().hex,
+                role=Role.agent,
+                parts=[
+                    Part(
+                        root=TextPart(
+                            text="Here are 5 restaurants near Google Playa Vista"
+                        )
+                    )
+                ],
+            ),
+        ),
+    )
+    a2a_events = [final_event]
+
+    conv._enrich_with_progress(
+        _coalesced_final_tool_response_event("find_restaurants", "call-1"),
+        context,
+        a2a_events,
+        "t1",
+        "c1",
+    )
+
+    progress_parts = [
+        part.root
+        for event in a2a_events
+        if getattr(getattr(event, "status", None), "state", None) == TaskState.working
+        for part in (event.status.message.parts or [])
+        if isinstance(part.root, TextPart)
+        and (part.root.metadata or {}).get(PROGRESS_STAGE_META)
+    ]
+
+    assert len(progress_parts) == 1
+    progress_steps = progress_parts[0].metadata[PROGRESS_STEPS_META]
+    assert progress_steps[0]["title"] == "Understanding request"
+    assert progress_steps[0]["state"] == "done"
+    assert progress_steps[1]["title"] == "Searching for restaurants"
+    assert progress_steps[1]["state"] == "done"
+    assert progress_steps[1]["completedTools"] == 1
+    assert progress_steps[1]["totalTools"] == 1
+    assert progress_steps[2]["title"] == "Compiling dashboard"
+    assert progress_steps[2]["state"] == "pending"
+    assert progress_steps[2]["completedTools"] == 0
+    assert progress_steps[2]["totalTools"] == 1
 
 
 def test_progress_monotonicity_and_deduplication():

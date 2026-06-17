@@ -12,8 +12,10 @@ both the **Custom UI** and the **Gemini Enterprise (GE) UI**:
 
 > Status: Phase 1 (template) and Phase 2 (route + thinking/progress widget) are
 > implemented. Phase 2's thinking widget is documented in detail below and is
-> the authoritative reference for `_tool_progress_messages()` in
-> `app/agent_executor.py`.
+> implemented in `_MapsKeyEventConverter._enrich_with_progress()` in
+> `app/agent_executor.py`. The older `_tool_progress_messages()` helpers are
+> retained for compatibility with historical A2UI progress-surface messages,
+> but current progress requests use compact metadata on streamed text parts.
 
 ---
 
@@ -25,9 +27,11 @@ renderer) automatically know how to draw standard A2UI catalog items once
 received. The **response enrichment** therefore needs **no client-side
 changes** — it is confined to the backend agent.
 
-The **thinking/progress widget** is likewise just an ordinary A2UI surface, so
-it renders in both UIs. It does require small frontend additions to *stream*
-the widget live during a request (see [Frontend integration](#frontend-integration)).
+The **thinking/progress widget** is driven by backend progress metadata. The
+custom UI renders that metadata with native Lit markup, while Gemini Enterprise
+uses text-only progress status messages in its native thinking panel. Historical
+A2UI progress-surface support remains in the frontend as a compatibility path,
+but it is not the current hot path.
 
 ```mermaid
 flowchart TD
@@ -289,19 +293,17 @@ the new template path:
 ### 2.2 Thinking Steps & Tool-Call Progress Widget
 
 > The original plan emitted plain-string `update_status(message="...")` stages.
-> The implemented design (below) is richer: a single re-rendered A2UI surface
-> showing an ordered checklist of thinking steps, the tool calls each step
-> issued nested beneath it, and a **per-step progress bar**. This section is the
-> authoritative reference.
+> The implemented design is richer: the backend emits structured progress
+> metadata, the custom UI renders an ordered checklist with per-step bars, and
+> GE receives a chronological text log such as `5% -> 50% -> 100%`.
 
 The agent surfaces its reasoning as a live **"Thinking" widget** — an ordered
 checklist of thinking steps, with the tool calls each step issued nested
 beneath it and a per-step progress bar that tracks tool-call completion.
 
-The whole widget is an ordinary A2UI surface, so it renders identically in the
-custom UI and the GE native renderer. It is re-emitted on every tick (keyed by
-a stable `surfaceId`) so the renderer updates it in place rather than
-appending.
+For the custom UI, each progress update is a tagged A2A `TextPart` whose
+metadata contains `a2uiProgressSteps`. For GE and other non-opt-in clients, the
+same state is converted into a single-line native status message.
 
 #### At a glance
 
@@ -324,8 +326,9 @@ tool list. Steps with no tools (e.g. the security gate) get no bar.
 
 #### Data model
 
-Progress is driven by an ordered list of `steps`, built up as the LangGraph
-graph executes. Each step is a plain dict:
+Progress is driven by an ordered list of `steps`, built up as ADK function
+call and function response events stream through the A2A converter. Each step
+is a plain dict:
 
 ```python
 {
@@ -360,11 +363,11 @@ or chart re-embed required.
 
 #### Visual nesting (why indentation, not Card chrome)
 
-The frontend renders A2UI with an **empty theme** (`EMPTY_THEME` in
-`frontend/src/app.ts`, e.g. `Card: {}`), so `Card` draws no border/background
-and `Column` adds no indentation — every component stacks as a plain block.
-Wrapping each step in a `Card` is therefore semantically correct but produces
-**no visible grouping** on its own.
+The legacy A2UI progress-surface renderer uses an **empty theme**
+(`EMPTY_THEME` in `frontend/src/app.ts`, e.g. `Card: {}`), so `Card` draws no
+border/background and `Column` adds no indentation — every component stacks as
+a plain block. Wrapping each step in a `Card` is therefore semantically correct
+but produces **no visible grouping** on its own.
 
 To make a step's sub-lines (detail, tool calls, progress bar) read as nested
 *under* its title, each sub-line is prefixed with `_INDENT` — four
@@ -389,15 +392,17 @@ widget's pure-text design.
 | `_progress_bar_text(pct, *, failed=False)` | Render the 20-cell text bar, e.g. `██████░░░░░░░░░░  30%`. Clamps to 0–100. |
 | `_prettify_tool(name)` | Map a tool name to a friendly label (`send_a2ui_json_to_client_tool` → `Render dashboard UI`), falling back to a humanized name. |
 | `_tool_progress(steps)` | Cross-step `(done, total, pct)` aggregate. Retained for reuse/testing; not used by the widget after the move to per-step bars. |
-| `_tool_progress_messages(surface_id, steps, *, include_begin, done, failed)` | Build the A2UI messages for the whole widget (Card → Column of Text components). |
-| `_emit_progress_status(...)` | Wrap the messages in a `TaskState.working` status update via the `TaskUpdater`. |
-| `_node_step(node_name, values)` | Map a completed LangGraph node (`short_circuit`, `model`, `tools`) to a `(title, detail)` step. |
+| `_public_progress_steps(steps)` | Convert internal backend steps into compact metadata consumed by the custom UI. |
+| `_get_single_line_progress(steps, *, done, failed)` | Convert the same state into the native text line used by GE, for example `▸ Compiling dashboard... (50%)`. |
+| `_MapsKeyEventConverter._advance_steps(event, steps)` | Update progress state from ADK function calls, function responses, and final text events. |
+| `_MapsKeyEventConverter._enrich_with_progress(...)` | Inject progress into converted A2A events as either tagged metadata parts or native text progress. |
+| `_tool_progress_messages(surface_id, steps, *, include_begin, done, failed)` | Legacy A2UI progress-surface builder retained for compatibility parsing and tests. |
 
-#### Widget structure emitted by `_tool_progress_messages`
+#### Legacy widget structure emitted by `_tool_progress_messages`
 
-Each step is wrapped in its **own** `Card` (→ `Column`) so the step's detail,
-tool calls, and progress bar are visibly grouped together — there is no
-ambiguity about which step a tool call or bar belongs to.
+The current opt-in path does not emit this surface, but the compatibility
+helpers still build this shape and the frontend can still parse historical
+`tool-progress-*` surfaces.
 
 ```
 Card  progress-root
@@ -432,98 +437,95 @@ For each step that issued tool calls:
 This replaced the earlier design that showed a single aggregate bar at the
 bottom of the widget.
 
-#### Lifecycle (executor flow)
+#### Lifecycle (converter flow)
 
-The graph is streamed instead of `ainvoke`d so progress reflects real node
-execution:
+The ADK executor streams events, and `_MapsKeyEventConverter` post-processes
+each converted A2A event batch:
 
-```python
-graph = self._agent.get_langgraph_graph()
-result = None
-async for mode, chunk in graph.astream(
-    cast(AgentState, initial_state),
-    stream_mode=["updates", "values"],
-):
-    if mode == "values":
-        result = chunk  # last "values" chunk is the final result
-        continue
-    for node_name, values in chunk.items():
-        ...  # map node -> step, advance bars, _emit()
-```
-
-1. **Intro step** — a scripted "Checking security & permissions" step is
-   appended `active` and the surface is created (`include_begin=True`). It has
-   no tools, so no bar.
-2. **Graph streaming** — `stream_mode=["updates", "values"]`:
-   - `values` chunks carry the accumulated state; the last one is the final
-     result.
-   - `updates` chunks tell us which node finished. `_node_step` produces the
-     step title/detail, the previously-active step is marked `done`, and any
-     tool calls on the node's last message are recorded as `running`.
-   - When the `tools` node runs, any `running` tool calls flip to `done`,
-     advancing the relevant per-step bar (no new thinking step is added).
-3. **Completion** — every step is marked `done`, any lingering `running` tools
-   are resolved to `done` (covers the short-circuit path whose A2UI tool call
-   is fulfilled directly), and a final `done=True` tick is emitted. This last
-   `working` event is the widget state that stays on the finished message.
-4. **Failure** — on exception, active steps and running tools flip to
-   `failed`, a `failed=True` tick is emitted, and the task is marked failed
-   with an error message part.
+1. **Request start** — the custom UI immediately shows a local
+   "Understanding request" step at `5%` so the panel is not blank.
+2. **Tool call** — `_advance_steps()` marks the previous active step done,
+   appends the tool step as active, and pre-announces short known follow-up
+   steps such as `Compiling dashboard` as pending.
+3. **Tool response** — matching running tools are marked done. The top-level
+   percent uses aggregate tool completion when tools are known, so a two-tool
+   restaurant request moves from `5%` while search is running to `50%` after
+   search completes.
+4. **Final response** — remaining active tools are resolved and the UI holds
+   the final visible step briefly before showing the result, so `100%` is
+   painted instead of being skipped.
+5. **Failure** — active steps and running tools flip to `failed`, and the task
+   is marked failed with an error message part.
 
 #### GE vs Custom UI — avoiding duplicate thinking windows
 
-Each `working` status update can carry two things: a **`TextPart`** (per-tick
-narration) and the **A2UI progress surface**. The two clients consume them
-differently:
+Each `working` status update can carry a **`TextPart`**. The two clients
+consume that text differently:
 
-| Client | `TextPart` | A2UI progress surface |
-|--------|-----------|-----------------------|
-| Custom UI | feeds the (hidden) reasoning-panel fallback | renders the rich in-place widget — the live bar |
-| GE | renders in its **native, append-only** thinking panel | renders as a **separate** in-place widget card |
+| Client | Progress handling |
+|--------|-------------------|
+| Custom UI | tagged `TextPart` metadata drives the Lit-rendered live panel |
+| GE | untagged text progress renders in the native append-only thinking panel |
 
-Sending both to GE therefore yields **two** "thinking" displays. A further
-wrinkle: GE's native panel **accumulates** every status message (each `working`
-update is shown as its own thought), so re-emitting an evolving checklist block per tick
-would stack duplicate, growing snapshots. We handle both with client routing
-plus a transition-based single-line text progress strategy:
+GE's native panel **accumulates** every status message (each `working` update
+is shown as its own thought). It cannot dynamically update an in-place progress
+bar inside the thinking panel. Re-emitting an evolving checklist block per tick
+would therefore stack duplicate, growing snapshots. We avoid that with client
+routing plus a transition-based single-line text progress strategy:
 
+- The public agent card advertises `capabilities.streaming: false`, so GE
+  should use `message/send` plus `tasks/get` polling rather than
+  `message/stream`.
+- During polling, GE reads `task.status.state`. While the state is not
+  completed, GE displays `task.status.message` in the Thinking tab. When the
+  task becomes completed, GE renders `task.artifacts` as the output.
 - The custom UI tags its A2A message with `metadata: { a2uiProgress: true }`
   (`frontend/src/client.ts`).
-- `execute()` reads `context.message.metadata`; `include_a2ui_progress` is true
-  only for that tag.
-- `_progress_status_parts(..., include_a2ui=...)`:
-  - **custom UI** → `TextPart` (plain stage narration) **+** the A2UI progress
-    surface, emitted **every tick** (its widget re-renders in place).
-  - **GE / other** → **text-only**, formatting each stage as a single-line status
+- The executor stores the opt-in in `session.state[PROGRESS_OPT_IN_KEY]`.
+- `_enrich_with_progress(...)`:
+  - **custom UI** → tagged `TextPart` metadata with `a2uiProgressSteps`; the Lit
+    shell renders the live panel itself.
+  - **GE / other** → text-only, formatting each stage as a single-line status
     message with its respective progress percentage:
     * *In-progress steps:* `▸ [Step Title]... ([Percentage]%)`
     * *Completion state:* `✓ Complete (100%)`
     * *Failure state:* `✗ Failed`
-- **Monotonicity & Deduplication:** To ensure the append-only panel displays clean progress, the `_emit` closure in `execute()` tracks:
+- **Monotonicity & Deduplication:** To ensure the append-only panel displays clean progress, the converter tracks:
   1. `last_native_pct` to clamp progress percentages monotonically upward (e.g. preventing a regression from 70% to 50% in loops).
   2. `last_emitted_text` to deduplicate sequential logs in the event of repeated node executions.
+- **Fast final events:** ADK can coalesce a tool response and final text into
+  one event. When that happens, native progress transitions are inserted as
+  separate `working` status events so `50%` and `100%` do not share one message.
+- **Native polling heartbeats:** For GE/non-opt-in requests, the executor emits
+  periodic `TaskStatusUpdateEvent(state=working, message=...)` updates while a
+  tool is running. Those updates become the `task.status.message` value returned
+  by `tasks/get`, so GE can show append-only milestones such as `5%`, `25%`,
+  `40%`, `50%`, `60%`, and then completion depending on its polling cadence.
+- **Final hold for polling:** Before emitting the completed task and artifacts,
+  GE/non-opt-in requests hold the last working status briefly so a polling
+  client has time to observe `task.status.message` in the Thinking tab.
 
-Result: the custom UI keeps its live in-place widget; GE shows a clean, chronological log of thoughts:
+Result: the custom UI keeps its live in-place widget; GE shows a clean,
+chronological append-only log of thoughts:
 
 ```
 [System spinner: Thinking...]
-▸ Checking security & permissions... (10%)
-▸ Consulting the whitepaper... (35%)
-▸ Compiling dashboard... (70%)
+▸ Searching for restaurants... (5%)
+▸ Compiling dashboard... (50%)
 ✓ Complete (100%)
 ```
 
 #### Frontend integration
 
-- **`frontend/src/client.ts`** — `send()` invokes `onA2UIMessage` for A2UI data
-  parts arriving in the `working` state, so progress surfaces stream live.
-  A shared `#extractA2UIMessages()` helper parses data parts (string or array).
-  `failed` task-state text is captured and thrown so `send()` rejects.
-- **`frontend/src/app.ts`** — `processLiveA2UI()` feeds streamed surfaces into
-  the processor and tracks them in `activeSurfaceIds`. `renderActivity()` shows
-  the progress widget live during the request and pins it to the finished
-  message via `progressSurfaceIds`, falling back to the collapsible
-  "Thought for N steps" reasoning panel when there is no progress surface.
+- **`frontend/src/client.ts`** — `send()` uses non-blocking `message/send` plus
+  `tasks/get` polling by default. It treats tagged progress text as stage
+  metadata and passes it to `onStage(text, progressSteps)`. A2UI data parts are
+  still parsed separately for answer surfaces.
+- **`frontend/src/app.ts`** — `sendAndProcess()` queues progress-stage paints
+  with a short minimum visibility window. This prevents tightly coalesced
+  backend events from painting only the final value. `renderProgressPanel()`
+  shows the live panel during the request and the finished message stores the
+  final `progressSteps` for the collapsible reasoning details.
 
 #### Tests
 
@@ -535,6 +537,10 @@ Result: the custom UI keeps its live in-place widget; GE shows a clean, chronolo
   glyphs, per-step bar counts (a step with no tools emits no bar; a step with a
   running tool shows `Tool calls · 0/1`; a completed step shows `1/1` at 100%),
   NBSP-indented sub-lines, and subtitle states.
+- coalesced final progress — preserves the intermediate `50%` milestone before
+  `100%` and keeps those native updates in separate `working` events.
+- opt-in metadata progress — confirms custom UI clients receive the
+  intermediate metadata milestone when a final event is coalesced.
 
 ---
 
@@ -548,13 +554,15 @@ Result: the custom UI keeps its live in-place widget; GE shows a clean, chronolo
 * Input the query `"what portion of call pipeline has won?"` into the chat
   input field.
 * **Progressive Verification**: Verify the Thinking widget updates in place as
-  the backend executes — steps flip from `▸` to `✓`, tool calls appear nested
-  under their step, and the per-step bar fills to `100%`.
+  the backend executes — the top-level percent paints `5%`, then `50%` for the
+  restaurant/dashboard two-tool path, then `100%`; steps flip from active to
+  done, tool calls appear nested under their step, and the per-step bar fills
+  to `100%`.
 * Verify the answer A2UI surface is correctly instantiated and the Vega chart
   draws without layout shifting or console errors.
-* **Restart note**: because the widget markup is generated server-side, restart
-  the backend after changing `_tool_progress_messages()` so the new output is
-  served.
+* **Restart note**: restart the backend after changing
+  `_MapsKeyEventConverter` or progress metadata shape so the new polling
+  behavior is served.
 
 ### 2. Gemini Enterprise (GE) Integration Sandbox
 * Synchronize the new agent metadata and capabilities configuration with Google
@@ -563,6 +571,6 @@ Result: the custom UI keeps its live in-place widget; GE shows a clean, chronolo
   make register-gemini-enterprise
   ```
 * Access the AskIBM workspace inside the GE portal.
-* Verify the thinking progression and per-step progress bars adapt to the
-  native GE collapsible reasoning panel in real time (the pure-text bar and
-  NBSP indentation render without any GE theme dependency).
+* Verify the native GE collapsible reasoning panel shows chronological progress
+  lines in real time, including the intermediate `50%` milestone before
+  `✓ Complete (100%)`.

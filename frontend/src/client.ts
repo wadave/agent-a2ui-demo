@@ -1,9 +1,9 @@
 /**
  * A2A client for communicating with the restaurant finder agent.
  *
- * Uses `message/stream` (Server-Sent Events) so the UI can render progressive
- * status updates emitted by the agent — the live "thinking" widget, per-step
- * progress bar, and stage narration — before the final artifact arrives.
+ * Uses A2A JSON-RPC to communicate with the restaurant finder agent. The
+ * UI transport is non-blocking `message/send` plus `tasks/get` polling, which
+ * matches the agent card's non-streaming capability.
  */
 
 const A2UI_EXTENSION_V08 = "https://a2ui.org/a2a-extension/a2ui/v0.8";
@@ -25,6 +25,8 @@ const A2UI_MESSAGE_KEYS = [
 // Backend tags thinking-step narration TextParts with this metadata flag.
 const PROGRESS_STAGE_META = "a2uiProgressStage";
 const PROGRESS_STEPS_META = "a2uiProgressSteps";
+const POLL_INTERVAL_MS = 750;
+const POLL_TIMEOUT_MS = 120_000;
 
 export interface A2UIMessage {
   [key: string]: unknown;
@@ -78,8 +80,63 @@ export class RestaurantA2UIClient {
     text: string;
     a2uiMessages: A2UIMessage[];
   }> {
-    const endpoint = await this.#getRpcEndpoint();
+    return this.#sendPolling(message, options);
+  }
 
+  async #sendPolling(
+    message: string | Record<string, unknown>,
+    options: SendOptions = {},
+  ): Promise<{
+    text: string;
+    a2uiMessages: A2UIMessage[];
+  }> {
+    const endpoint = await this.#getRpcEndpoint();
+    const rpcRequest = this.#buildRpcRequest("message/send", message, {
+      blocking: false,
+      historyLength: 100,
+    });
+    const envelope = await this.#postJsonRpc(endpoint, rpcRequest);
+    const initial = envelope.result as Record<string, unknown> | undefined;
+    if (!initial || typeof initial !== "object") {
+      throw new Error("Polling request did not return a task.");
+    }
+
+    const taskId = typeof initial["id"] === "string" ? initial["id"] : null;
+    if (!taskId) {
+      return this.#extractResultFromTask(initial);
+    }
+
+    const seenProgress = new Set<string>();
+    this.#emitTaskProgress(initial, seenProgress, options);
+
+    const startedAt = Date.now();
+    let task = initial;
+    while (!this.#isTerminalTask(task)) {
+      if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
+        throw new Error("Timed out waiting for agent response.");
+      }
+      await this.#delay(POLL_INTERVAL_MS);
+      task = await this.#getTask(endpoint, taskId);
+      this.#emitTaskProgress(task, seenProgress, options);
+    }
+
+    const finalState = this.#getTaskState(task);
+    if (finalState !== "completed") {
+      const failureText = this.#extractFailureText(task);
+      throw new Error(
+        failureText || `The agent stopped with state: ${finalState || "unknown"}.`,
+      );
+    }
+
+    this.#emitTaskProgress(task, seenProgress, options);
+    return this.#extractResultFromTask(task);
+  }
+
+  #buildRpcRequest(
+    method: "message/send",
+    message: string | Record<string, unknown>,
+    configuration?: Record<string, unknown>,
+  ) {
     let parts: unknown[];
     if (typeof message === "string") {
       parts = [{ kind: "text", text: message }];
@@ -93,9 +150,9 @@ export class RestaurantA2UIClient {
       ];
     }
 
-    const rpcRequest = {
+    return {
       jsonrpc: "2.0",
-      method: "message/stream",
+      method,
       id: ++this.#requestId,
       params: {
         message: {
@@ -106,14 +163,20 @@ export class RestaurantA2UIClient {
           kind: "message",
           metadata: { a2uiProgress: true },
         },
+        ...(configuration ? { configuration } : {}),
       },
     };
+  }
 
+  async #postJsonRpc(
+    endpoint: string,
+    rpcRequest: Record<string, unknown>,
+  ): Promise<JsonRpcResult> {
     const resp = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Accept: "text/event-stream",
+        Accept: "application/json",
         "X-A2A-Extensions": A2UI_EXTENSION_V08,
       },
       body: JSON.stringify(rpcRequest),
@@ -122,122 +185,147 @@ export class RestaurantA2UIClient {
     if (!resp.ok) {
       throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
     }
-    if (!resp.body) {
-      throw new Error("Streaming response has no body");
+    const envelope = await resp.json() as JsonRpcResult;
+    if (envelope.error) {
+      throw new Error(
+        envelope.error.message || JSON.stringify(envelope.error),
+      );
     }
+    return envelope;
+  }
 
+  async #getTask(endpoint: string, taskId: string): Promise<Record<string, unknown>> {
+    const envelope = await this.#postJsonRpc(endpoint, {
+      jsonrpc: "2.0",
+      method: "tasks/get",
+      id: ++this.#requestId,
+      params: { id: taskId, historyLength: 100 },
+    });
+    const task = envelope.result as Record<string, unknown> | undefined;
+    if (!task || typeof task !== "object") {
+      throw new Error(`Task ${taskId} was not found.`);
+    }
+    return task;
+  }
+
+  #emitTaskProgress(
+    task: Record<string, unknown>,
+    seenProgress: Set<string>,
+    options: SendOptions,
+  ) {
+    if (!options.onStage) return;
+    for (const message of this.#taskMessages(task)) {
+      for (const part of message.parts ?? []) {
+        if (
+          part["kind"] !== "text" ||
+          typeof part["text"] !== "string" ||
+          !this.#isStagePart(part)
+        ) {
+          continue;
+        }
+        const steps = this.#extractProgressSteps(part);
+        const signature = `${part["text"]}\n${JSON.stringify(steps ?? [])}`;
+        if (seenProgress.has(signature)) continue;
+        seenProgress.add(signature);
+        options.onStage(part["text"], steps);
+      }
+    }
+  }
+
+  #extractResultFromTask(task: Record<string, unknown>): {
+    text: string;
+    a2uiMessages: A2UIMessage[];
+  } {
     let textContent = "";
-    let failureText = "";
     const a2uiMessages: A2UIMessage[] = [];
 
-    for await (const frame of this.#readSse(resp.body)) {
-      let envelope: JsonRpcResult;
-      try {
-        envelope = JSON.parse(frame);
-      } catch (err) {
-        console.warn("[A2UI] Skipping unparseable SSE frame:", err);
-        continue;
-      }
-      if (envelope.error) {
-        throw new Error(
-          envelope.error.message || JSON.stringify(envelope.error),
-        );
-      }
-      const ev = envelope.result as Record<string, unknown> | undefined;
-      if (!ev || typeof ev !== "object") continue;
-
-      const kind = ev["kind"];
-
-      if (kind === "status-update") {
-        const status = ev["status"] as Record<string, unknown> | undefined;
-        const state = status?.["state"];
-        const msg = status?.["message"] as
-          | { parts?: Array<Record<string, unknown>> }
-          | undefined;
-        if (state === "working" && msg?.parts) {
-          if (options.onStage) {
-            for (const p of msg.parts) {
-              if (
-                p["kind"] === "text" &&
-                typeof p["text"] === "string"
-              ) {
-                if (this.#isStagePart(p)) {
-                  options.onStage(p["text"], this.#extractProgressSteps(p));
-                } else {
-                  textContent += p["text"] + "\n";
-                }
-              }
-            }
-          }
-          if (options.onA2UIMessage) {
-            const liveMessages = this.#extractA2UIMessages(msg.parts);
-            if (liveMessages.length > 0) {
-              options.onA2UIMessage(liveMessages);
-            }
-          }
-        }
-        if (state === "failed") {
-          for (const p of msg?.parts ?? []) {
-            if (p["kind"] === "text" && typeof p["text"] === "string") {
-              failureText += p["text"];
-            }
-          }
-          if (!failureText) {
-            failureText = "The agent failed to complete the request.";
-          }
-        }
-      } else if (kind === "artifact-update") {
-        const artifact = ev["artifact"] as
-          | { parts?: Array<Record<string, unknown>> }
-          | undefined;
-        if (artifact?.parts) {
-          for (const part of artifact.parts) {
-            if (
-              part["kind"] === "text" &&
-              typeof part["text"] === "string" &&
-              !this.#isStagePart(part)
-            ) {
-              textContent += part["text"] + "\n";
-            } else if (part["kind"] === "data") {
-              a2uiMessages.push(...this.#extractA2UIMessages([part]));
-            }
-          }
-        }
-      } else if (kind === "task" || kind === "message") {
-        const status = (ev["status"] as { message?: { parts?: unknown[] } })
-          ?.message;
-        if (status?.parts) {
-          for (const part of status.parts as Array<Record<string, unknown>>) {
-            if (
-              part["kind"] === "text" &&
-              typeof part["text"] === "string" &&
-              !this.#isStagePart(part)
-            ) {
-              textContent += part["text"] + "\n";
-            }
-          }
-        }
-        const artifacts = ev["artifacts"] as
-          | Array<{ parts?: Array<Record<string, unknown>> }>
-          | undefined;
-        if (artifacts) {
-          for (const artifact of artifacts) {
-            if (!artifact.parts) continue;
-            for (const part of artifact.parts) {
-              if (part["kind"] === "data") {
-                a2uiMessages.push(...this.#extractA2UIMessages([part]));
-              }
-            }
-          }
-        }
+    for (const part of this.#taskResultParts(task)) {
+      if (
+        part["kind"] === "text" &&
+        typeof part["text"] === "string" &&
+        !this.#isStagePart(part)
+      ) {
+        textContent += part["text"] + "\n";
+      } else if (part["kind"] === "data") {
+        a2uiMessages.push(...this.#extractA2UIMessages([part]));
       }
     }
 
-    if (failureText) {
-      throw new Error(failureText.trim());
+    if (!textContent) {
+      const status = task["status"] as
+        | { message?: { parts?: Array<Record<string, unknown>> } }
+        | undefined;
+      for (const part of status?.message?.parts ?? []) {
+        if (
+          part["kind"] === "text" &&
+          typeof part["text"] === "string" &&
+          !this.#isStagePart(part)
+        ) {
+          textContent += part["text"] + "\n";
+        }
+      }
     }
 
     return { text: textContent.trim(), a2uiMessages };
+  }
+
+  #taskMessages(task: Record<string, unknown>) {
+    const messages: Array<{ parts?: Array<Record<string, unknown>> }> = [];
+    const history = task["history"] as Array<{ parts?: Array<Record<string, unknown>> }> | undefined;
+    if (Array.isArray(history)) messages.push(...history);
+    const status = task["status"] as
+      | { message?: { parts?: Array<Record<string, unknown>> } }
+      | undefined;
+    if (status?.message) messages.push(status.message);
+    return messages;
+  }
+
+  #taskResultParts(task: Record<string, unknown>) {
+    const parts: Array<Record<string, unknown>> = [];
+    const artifacts = task["artifacts"] as
+      | Array<{ parts?: Array<Record<string, unknown>> }>
+      | undefined;
+    for (const artifact of artifacts ?? []) {
+      if (artifact.parts) parts.push(...artifact.parts);
+    }
+    return parts;
+  }
+
+  #getTaskState(task: Record<string, unknown>) {
+    const status = task["status"] as Record<string, unknown> | undefined;
+    return typeof status?.["state"] === "string" ? status["state"] : "";
+  }
+
+  #isTerminalTask(task: Record<string, unknown>) {
+    return [
+      "completed",
+      "failed",
+      "canceled",
+      "rejected",
+      "auth-required",
+      "input-required",
+    ].includes(this.#getTaskState(task));
+  }
+
+  #extractFailureText(task: Record<string, unknown>) {
+    const status = task["status"] as
+      | { message?: { parts?: Array<Record<string, unknown>> } }
+      | undefined;
+    return this.#extractFailureTextFromParts(status?.message?.parts ?? []);
+  }
+
+  #extractFailureTextFromParts(parts: Array<Record<string, unknown>>) {
+    let failureText = "";
+    for (const part of parts) {
+      if (part["kind"] === "text" && typeof part["text"] === "string") {
+        failureText += part["text"];
+      }
+    }
+    return failureText || "The agent failed to complete the request.";
+  }
+
+  #delay(ms: number) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
   }
 
   #isStagePart(part: Record<string, unknown>): boolean {
@@ -283,43 +371,4 @@ export class RestaurantA2UIClient {
     return messages;
   }
 
-  async *#readSse(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
-    const reader = body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-
-    const SEP = /\r?\n\r?\n/;
-
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-
-        let m: RegExpExecArray | null;
-        while ((m = SEP.exec(buf)) !== null) {
-          const raw = buf.slice(0, m.index);
-          buf = buf.slice(m.index + m[0].length);
-          const data = this.#extractSseData(raw);
-          if (data) yield data;
-        }
-      }
-      if (buf.trim()) {
-        const data = this.#extractSseData(buf);
-        if (data) yield data;
-      }
-    } finally {
-      reader.releaseLock();
-    }
-  }
-
-  #extractSseData(raw: string): string | null {
-    const lines: string[] = [];
-    for (const line of raw.split(/\r?\n/)) {
-      if (line.startsWith("data:")) {
-        lines.push(line.slice(5).replace(/^ /, ""));
-      }
-    }
-    return lines.length > 0 ? lines.join("\n") : null;
-  }
 }
