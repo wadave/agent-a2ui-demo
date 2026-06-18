@@ -14,6 +14,7 @@
 
 """Restaurant Finder agent using A2UI SDK for GE UI integration."""
 
+import builtins
 import json
 import logging
 import os
@@ -22,6 +23,13 @@ from typing import Any, ClassVar
 
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from a2ui.a2a.extension import get_a2ui_agent_extension
+from google.adk import models as _adk_models
+
+# Compatibility for a2ui versions that import LlmRequest but annotate with
+# ``models.LlmRequest`` while evaluating annotations at import time.
+if not hasattr(builtins, "models"):
+    builtins.models = _adk_models
+
 from a2ui.adk.send_a2ui_to_client_toolset import (
     SendA2uiToClientToolset,
 )

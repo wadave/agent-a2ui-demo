@@ -39,6 +39,7 @@ from app.agent import (
 from app.agent_executor import (
     PROGRESS_STAGE_META,
     PROGRESS_STEPS_META,
+    NativeProgressTracker,
     _get_estimated_single_line_progress,
     _get_single_line_progress,
     _MapsKeyEventConverter,
@@ -469,10 +470,7 @@ def test_native_progress_keeps_intermediate_update_when_final_event_is_coalesced
         if isinstance(part.root, TextPart)
     ]
 
-    assert progress_texts == [
-        "▸ Compiling dashboard... (50%)",
-        "✓ Complete (100%)",
-    ]
+    assert progress_texts == ["▸ Compiling dashboard... (50%)"]
 
 
 def test_coalesced_final_progress_uses_separate_working_events():
@@ -553,10 +551,7 @@ def test_coalesced_final_progress_uses_separate_working_events():
         for event in progress_events
     ]
 
-    assert progress_texts_by_event[:2] == [
-        ["▸ Compiling dashboard... (50%)"],
-        ["✓ Complete (100%)"],
-    ]
+    assert progress_texts_by_event[:1] == [["▸ Compiling dashboard... (50%)"]]
 
 
 def test_opt_in_progress_emits_coalesced_final_metadata_milestone():
@@ -747,3 +742,184 @@ def test_progress_monotonicity_and_deduplication():
     assert status4 is not None and status4.message is not None
     # Since text is identical, the parts of a2a_events4[0].status.message should remain empty
     assert not status4.message.parts
+
+
+# ---------------------------------------------------------------------------
+# NativeProgressTracker — poll-driven GE Thinking-tab stage (read-time compute)
+# ---------------------------------------------------------------------------
+
+
+def _tracker_text(tracker, task_id, *, now):
+    msg = tracker.status_message(task_id, now=now)
+    if msg is None:
+        return None
+    return msg.parts[0].root.text
+
+
+def test_native_tracker_unstarted_task_returns_none():
+    tracker = NativeProgressTracker()
+    assert tracker.status_message("missing") is None
+
+
+def test_native_tracker_understanding_phase_advances_over_time():
+    tracker = NativeProgressTracker()
+    tracker.start("t1")
+    started = tracker._tasks["t1"]["started_at"]
+
+    # Immediately after start: floor of 5%.
+    assert "(5%)" in _tracker_text(tracker, "t1", now=started)
+    # A few seconds in: climbs but stays in the understanding band (<=30%).
+    text = _tracker_text(tracker, "t1", now=started + 3)
+    assert "Understanding request" in text
+    assert "(20%)" in text
+    # Far in: capped at the understanding ceiling, never racing to 100%.
+    assert "(30%)" in _tracker_text(tracker, "t1", now=started + 60)
+
+
+def test_native_tracker_uses_tool_steps_when_attached():
+    tracker = NativeProgressTracker()
+    tracker.start("t1")
+    started = tracker._tasks["t1"]["started_at"]
+    steps = [
+        {
+            "title": "Searching for restaurants",
+            "state": "active",
+            "active_started_at": started,
+            "tools": [{"name": "find_restaurants", "state": "running"}],
+        }
+    ]
+    tracker.attach_steps("t1", steps)
+    text = _tracker_text(tracker, "t1", now=started + 1)
+    assert "Searching for restaurants" in text
+
+
+def test_native_tracker_is_monotonic_across_polls():
+    tracker = NativeProgressTracker()
+    tracker.start("t1")
+    started = tracker._tasks["t1"]["started_at"]
+    # Advance to 30% via the understanding curve.
+    _tracker_text(tracker, "t1", now=started + 60)
+    # A later poll that would compute a lower value must not regress.
+    text = _tracker_text(tracker, "t1", now=started)
+    assert "(30%)" in text
+
+
+def test_native_tracker_finalize_replays_milestones():
+    tracker = NativeProgressTracker()
+    tracker.start("t1")
+    started = tracker._tasks["t1"]["started_at"]
+    steps = [
+        {
+            "title": "Searching for restaurants",
+            "state": "done",
+            "active_started_at": started,
+            "tools": [{"name": "find_restaurants", "state": "done"}],
+        },
+        {
+            "title": "Compiling dashboard",
+            "state": "done",
+            "active_started_at": started,
+            "tools": [{"name": "send_a2ui_json_to_client", "state": "done"}],
+        },
+    ]
+    tracker.attach_steps("t1", steps)
+    tracker.finalize("t1")
+    assert not tracker.final_replay_complete("t1")
+    assert _tracker_text(tracker, "t1", now=0) == "▸ Understanding request... (5%)"
+
+    text = _tracker_text(tracker, "t1", now=0.5)
+    assert "✓ Searching for restaurants... (40%)" in text
+    assert "↳ ✓ Search for restaurants" in text
+    assert "Tool calls · 1/1" in text
+
+    text = _tracker_text(tracker, "t1", now=1.1)
+    assert "✓ Compiling dashboard... (70%)" in text
+    assert "↳ ✓ Render dashboard UI" in text
+    assert "Tool calls · 1/1" in text
+
+    assert _tracker_text(tracker, "t1", now=2.2) == "▸ Composing response... (90%)"
+    assert _tracker_text(tracker, "t1", now=3.3) == "✓ Complete (100%)"
+    assert tracker.final_replay_complete("t1")
+
+
+def test_native_tracker_replays_done_tool_steps_before_finalizing():
+    tracker = NativeProgressTracker()
+    tracker.start("t1")
+    started = tracker._tasks["t1"]["started_at"]
+    tracker._tasks["t1"]["last_pct"] = 15
+    tracker.attach_steps(
+        "t1",
+        [
+            {
+                "title": "Searching for restaurants",
+                "state": "done",
+                "active_started_at": started,
+                "tools": [{"name": "find_restaurants", "state": "done"}],
+            },
+            {
+                "title": "Compiling dashboard",
+                "state": "done",
+                "active_started_at": started,
+                "tools": [{"name": "send_a2ui_json_to_client", "state": "done"}],
+            },
+        ],
+    )
+
+    text = _tracker_text(tracker, "t1", now=started + 1)
+    assert "✓ Searching for restaurants... (40%)" in text
+    assert "↳ ✓ Search for restaurants" in text
+    assert "Tool calls · 1/1" in text
+
+    text = _tracker_text(tracker, "t1", now=started + 2)
+    assert "✓ Compiling dashboard... (70%)" in text
+    assert "↳ ✓ Render dashboard UI" in text
+    assert "Tool calls · 1/1" in text
+
+    tracker.finalize("t1")
+    assert _tracker_text(tracker, "t1", now=started + 3) == (
+        "▸ Composing response... (90%)"
+    )
+    assert _tracker_text(tracker, "t1", now=started + 4) == "✓ Complete (100%)"
+
+
+def test_native_tracker_finalize_keeps_tool_steps_after_high_live_progress():
+    tracker = NativeProgressTracker()
+    tracker.start("t1")
+    started = tracker._tasks["t1"]["started_at"]
+    tracker._tasks["t1"]["last_pct"] = 95
+    tracker.attach_steps(
+        "t1",
+        [
+            {
+                "title": "Searching for restaurants",
+                "state": "done",
+                "active_started_at": started,
+                "tools": [{"name": "find_restaurants", "state": "done"}],
+            },
+            {
+                "title": "Compiling dashboard",
+                "state": "done",
+                "active_started_at": started,
+                "tools": [{"name": "send_a2ui_json_to_client", "state": "done"}],
+            },
+        ],
+    )
+    tracker.finalize("t1")
+
+    text = _tracker_text(tracker, "t1", now=0)
+    assert "✓ Searching for restaurants... (96%)" in text
+    assert "↳ ✓ Search for restaurants" in text
+
+    text = _tracker_text(tracker, "t1", now=1)
+    assert "✓ Compiling dashboard... (97%)" in text
+    assert "↳ ✓ Render dashboard UI" in text
+
+    assert _tracker_text(tracker, "t1", now=2) == "▸ Composing response... (98%)"
+    assert _tracker_text(tracker, "t1", now=3) == "✓ Complete (100%)"
+
+
+def test_native_tracker_finish_stops_overriding():
+    tracker = NativeProgressTracker()
+    tracker.start("t1")
+    tracker.finish("t1")
+    assert tracker.status_message("t1") is None

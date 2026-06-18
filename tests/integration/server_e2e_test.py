@@ -128,7 +128,7 @@ def server_fixture(request: Any) -> Iterator[subprocess.Popen[str]]:
 
 
 def test_chat_non_streaming(server_fixture: subprocess.Popen[str]) -> None:
-    """Test the non-streaming chat functionality using A2A JSON-RPC protocol."""
+    """Default native message/send returns a working task for polling."""
     logger.info("Starting non-streaming chat test")
 
     message = Message(
@@ -161,7 +161,31 @@ def test_chat_non_streaming(server_fixture: subprocess.Popen[str]) -> None:
     task = json_rpc_resp.result
     assert task.kind == "task"
     assert hasattr(task, "status")
-    assert task.status.state == "completed"
+    assert task.status.state in ("submitted", "working")
+
+    deadline = time.time() + 60
+    saw_thinking_message = bool(task.status.message and task.status.message.parts)
+    while task.status.state != "completed":
+        assert time.time() < deadline, "Timed out polling default native task"
+        time.sleep(0.5)
+        get_request = GetTaskRequest(
+            id="test-req-default-get",
+            params=TaskQueryParams(id=task.id, historyLength=100),
+        )
+        poll_response = requests.post(
+            A2A_RPC_URL,
+            headers=HEADERS,
+            json=get_request.model_dump(mode="json", exclude_none=True),
+            timeout=60,
+        )
+        assert poll_response.status_code == 200
+        task = GetTaskResponse.model_validate(poll_response.json()).root.result
+        if task.status.state != "completed":
+            saw_thinking_message = saw_thinking_message or bool(
+                task.status.message and task.status.message.parts
+            )
+
+    assert saw_thinking_message, "No working task.status.message was visible"
 
     # Check that we got artifacts (the final agent output)
     assert hasattr(task, "artifacts")

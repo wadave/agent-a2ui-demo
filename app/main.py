@@ -20,14 +20,13 @@ from pathlib import Path
 import uvicorn
 from a2a.server import tasks
 from a2a.server.apps import A2AStarletteApplication
-from a2a.server.request_handlers import DefaultRequestHandler
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from app.agent import RestaurantFinderAgent
-from app.agent_executor import RestaurantFinderExecutor
+from app.agent_executor import ProgressAwareRequestHandler, RestaurantFinderExecutor
 from app.config import AGENT_URL, get_google_maps_api_key
 
 # 1. Create the Agent, AgentCard, RequestHandler, and App.
@@ -36,9 +35,12 @@ agent_card = agent.agent_card
 
 executor = RestaurantFinderExecutor(base_url=AGENT_URL, agent=agent)
 
-request_handler = DefaultRequestHandler(
+# Poll-driven progress for Gemini Enterprise: the handler renders the current
+# Thinking-tab stage from the executor's tracker at tasks/get read time.
+request_handler = ProgressAwareRequestHandler(
     agent_executor=executor,
     task_store=tasks.InMemoryTaskStore(),
+    native_progress=executor.native_progress,
 )
 
 # 2. The Functions Framework will automatically look for this 'app' variable.

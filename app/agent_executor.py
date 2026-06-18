@@ -24,14 +24,20 @@ from typing import Any, override
 from urllib.parse import parse_qs, urlencode
 
 from a2a.server.agent_execution import RequestContext
+from a2a.server.context import ServerCallContext
 from a2a.server.events.event_queue import EventQueue
+from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.types import (
     Artifact,
     DataPart,
     Message,
+    MessageSendConfiguration,
+    MessageSendParams,
     Part,
     Role,
+    Task,
     TaskArtifactUpdateEvent,
+    TaskQueryParams,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
@@ -70,7 +76,8 @@ from app.session_keys import A2UI_CATALOG_KEY, A2UI_ENABLED_KEY, A2UI_EXAMPLES_K
 logger = logging.getLogger(__name__)
 
 NATIVE_PROGRESS_HEARTBEAT_INTERVAL_SECS = 0.75
-NATIVE_PROGRESS_FINAL_HOLD_SECS = 2.0
+NATIVE_PROGRESS_FINAL_HOLD_SECS = 15.0
+NATIVE_PROGRESS_REPLAY_CHECK_SECS = 0.25
 
 # Matches the /maps/embed proxy URL produced by the LLM.
 _MAPS_PROXY_RE = re.compile(r"^/maps/embed\?(.+)$")
@@ -819,6 +826,124 @@ def _get_estimated_single_line_progress(
     return f"▸ {title}... ({pct}%)", pct
 
 
+def _native_replay_tool_pcts(count: int) -> list[int]:
+    """Return final replay milestones for completed tool-backed steps."""
+    if count <= 0:
+        return []
+    if count == 1:
+        return [70]
+    if count == 2:
+        # The common restaurant flow becomes 5 -> 40 -> 70 -> 90 -> 100.
+        return [40, 70]
+
+    start = 40
+    end = 80
+    return [
+        round(start + ((end - start) * idx / max(1, count - 1))) for idx in range(count)
+    ]
+
+
+def _replace_progress_pct(text: str, pct: int) -> str:
+    """Replace the first percentage marker in a native progress line."""
+    return re.sub(r"\(\d+%\)", f"({pct}%)", text, count=1)
+
+
+def _native_tool_step_text(step: dict[str, Any], pct: int) -> str:
+    """Build one GE-friendly replay snapshot with tool call detail."""
+    marker = _STEP_MARKERS.get(step.get("state", "done"), "✓")
+    title = step.get("title", "Working")
+    lines = [f"{marker} {title}... ({pct}%)"]
+
+    tools = step.get("tools", [])
+    for tool in tools:
+        tmarker = _TOOL_MARKERS.get(tool.get("state", "done"), "✓")
+        lines.append(f"{_INDENT}↳ {tmarker} {_prettify_tool(tool.get('name', ''))}")
+
+    if tools:
+        done = sum(1 for tool in tools if tool.get("state") == "done")
+        lines.append(f"{_INDENT}Tool calls · {done}/{len(tools)}")
+
+    return "\n".join(lines)
+
+
+def _normalize_native_replay_pcts(
+    replay: list[tuple[str, int]], *, last_pct: int
+) -> list[tuple[str, int]]:
+    """Keep final replay percentages monotonic without dropping stage text."""
+    if not replay:
+        return replay
+
+    normalized: list[tuple[str, int]] = []
+    current = max(0, min(99, last_pct))
+    non_complete_count = max(0, len(replay) - 1)
+    for idx, (text, pct) in enumerate(replay):
+        is_complete = idx == len(replay) - 1
+        if is_complete:
+            normalized.append((_replace_progress_pct(text, 100), 100))
+            continue
+
+        remaining_non_complete = non_complete_count - idx - 1
+        max_for_slot = 99 - remaining_non_complete
+        bump = (
+            1
+            if pct <= current
+            and current >= NativeProgressTracker._UNDERSTANDING_CEIL_PCT
+            else 0
+        )
+        pct = max(pct, current + bump)
+        pct = min(max_for_slot, max(5, min(99, pct)))
+        current = pct
+        normalized.append((_replace_progress_pct(text, pct), pct))
+
+    return normalized
+
+
+def _build_native_final_replay(
+    steps: list[dict[str, Any]],
+    *,
+    last_pct: int = 0,
+    skip_tool_count: int = 0,
+) -> list[tuple[str, int]]:
+    """Build GE Thinking snapshots to replay if the real task finished quickly."""
+    all_tool_steps = [
+        step
+        for step in steps
+        if step.get("title")
+        and str(step.get("title")).lower() != "understanding request"
+    ]
+    tool_steps = all_tool_steps[max(0, skip_tool_count) :]
+
+    replay: list[tuple[str, int]] = []
+    if not all_tool_steps or (
+        skip_tool_count <= 0
+        and last_pct < NativeProgressTracker._UNDERSTANDING_CEIL_PCT
+    ):
+        replay.append(("▸ Understanding request... (5%)", 5))
+
+    replay_pcts = _native_replay_tool_pcts(len(all_tool_steps))[skip_tool_count:]
+    for step, pct in zip(tool_steps, replay_pcts, strict=True):
+        replay.append((_native_tool_step_text(step, pct), pct))
+
+    if not all_tool_steps:
+        replay.append(("▸ Preparing response... (70%)", 70))
+
+    replay.extend(
+        [
+            ("▸ Composing response... (90%)", 90),
+            ("✓ Complete (100%)", 100),
+        ]
+    )
+
+    deduped: list[tuple[str, int]] = []
+    seen_text: set[str] = set()
+    for text, pct in replay:
+        if text in seen_text:
+            continue
+        seen_text.add(text)
+        deduped.append((text, pct))
+    return _normalize_native_replay_pcts(deduped, last_pct=last_pct)
+
+
 def _progress_status_parts(
     surface_id: str,
     steps: list[dict[str, Any]],
@@ -910,13 +1035,169 @@ def _dedupe_text_parts_across_events(a2a_events, seen: set[str] | None = None) -
                 owner.parts = clean_parts(owner.parts)
 
 
+class NativeProgressTracker:
+    """Task-keyed progress state for Gemini Enterprise's poll-driven Thinking tab.
+
+    GE uses ``message/send`` + ``tasks/get`` polling (the agent card advertises
+    ``streaming=False``). On each poll, while the task is not ``completed``, GE
+    renders ``task.status.message``; once ``completed`` it renders
+    ``task.artifacts``. It does NOT accumulate ``task.history`` — it shows the
+    current snapshot.
+
+    Our agent frequently finishes within a single GE poll interval, so the
+    stream of ``working`` status events collapses: by the first poll the stored
+    ``status.message`` has already raced to ``"✓ Complete (100%)"`` (or the task
+    is already ``completed``). The result is a Thinking tab that only ever shows
+    ``100%``.
+
+    This tracker decouples the displayed stage from event timing. The custom
+    ``tasks/get`` handler (:class:`ProgressAwareRequestHandler`) computes the
+    *current* stage from this state at read time, so every poll — whenever it
+    lands — returns an accurate, time-advanced progress line. Responsiveness is
+    still bounded by GE's poll interval (polling is inherently less dynamic than
+    streaming), but each poll is now correct.
+    """
+
+    # Pre-tool "Understanding request" phase advances 5% -> this ceiling on a
+    # gentle elapsed-time curve, so an early poll never shows a misleading 100%.
+    _UNDERSTANDING_CEIL_PCT = 30
+
+    def __init__(self) -> None:
+        self._tasks: dict[str, dict[str, Any]] = {}
+
+    def start(self, task_id: str) -> None:
+        """Begin tracking a task in the ``working`` state."""
+        self._tasks[task_id] = {
+            "started_at": time.monotonic(),
+            "steps": [],
+            "state": "working",
+            "last_pct": 5,
+            "done_replay_index": 0,
+            "done_replay_served_count": 0,
+        }
+
+    def attach_steps(self, task_id: str, steps: list[dict[str, Any]]) -> None:
+        """Point this task at the converter's live step list (by reference)."""
+        entry = self._tasks.get(task_id)
+        if entry is not None:
+            entry["steps"] = steps
+
+    def finalize(self, task_id: str) -> None:
+        """Replay final milestones while the task remains ``working``."""
+        entry = self._tasks.get(task_id)
+        if entry is not None:
+            entry["state"] = "finalizing"
+            entry["finalized_at"] = time.monotonic()
+            entry["replay"] = _build_native_final_replay(
+                entry.get("steps") or [],
+                last_pct=entry.get("last_pct", 0),
+                skip_tool_count=entry.get("done_replay_served_count", 0),
+            )
+            entry["replay_index"] = None
+            entry["complete_served_at"] = None
+
+    def final_replay_complete(self, task_id: str) -> bool:
+        """Return True once a poll has received the final 100% snapshot."""
+        entry = self._tasks.get(task_id)
+        return bool(entry and entry.get("complete_served_at") is not None)
+
+    def finish(self, task_id: str, *, failed: bool = False) -> None:
+        """Stop tracking so polls fall back to the stored task/artifacts."""
+        self._tasks.pop(task_id, None)
+        if failed:
+            # Nothing to retain; a failed task surfaces its error via the store.
+            return
+
+    def status_message(
+        self, task_id: str, *, now: float | None = None
+    ) -> Message | None:
+        """Compute the current ``working`` status message for a poll, or None."""
+        entry = self._tasks.get(task_id)
+        if not entry:
+            return None
+        if entry["state"] == "finalizing":
+            current = now if now is not None else time.monotonic()
+            replay = entry.get("replay") or [("✓ Complete (100%)", 100)]
+            replay_index = entry.get("replay_index")
+            if replay_index is None:
+                replay_index = 0
+            elif replay_index < len(replay) - 1:
+                replay_index += 1
+            entry["replay_index"] = replay_index
+
+            text, pct = replay[replay_index]
+            entry["last_pct"] = pct
+            if pct >= 100:
+                entry["complete_served_at"] = current
+            return Message(
+                message_id=uuid.uuid4().hex,
+                role=Role.agent,
+                parts=[Part(root=TextPart(text=text))],
+            )
+        if entry["state"] != "working":
+            return None
+
+        steps = entry.get("steps") or []
+        if steps:
+            active_step = next(
+                (step for step in steps if step.get("state") == "active"),
+                None,
+            )
+            tool_steps = [
+                step
+                for step in steps
+                if step.get("title")
+                and str(step.get("title")).lower() != "understanding request"
+            ]
+            all_tool_steps_done = bool(tool_steps) and all(
+                step.get("state") in ("done", "failed") for step in tool_steps
+            )
+            if active_step is None and all_tool_steps_done:
+                idx = min(
+                    entry.get("done_replay_index", 0),
+                    max(0, len(tool_steps) - 1),
+                )
+                replay_pcts = _native_replay_tool_pcts(len(tool_steps))
+                text = _native_tool_step_text(tool_steps[idx], replay_pcts[idx])
+                pct = replay_pcts[idx]
+                entry["done_replay_index"] = min(idx + 1, len(tool_steps))
+                entry["done_replay_served_count"] = max(
+                    entry.get("done_replay_served_count", 0),
+                    idx + 1,
+                )
+            else:
+                text, pct = _get_estimated_single_line_progress(steps, now=now)
+        else:
+            current = now if now is not None else time.monotonic()
+            elapsed = max(0.0, current - entry["started_at"])
+            pct = min(self._UNDERSTANDING_CEIL_PCT, 5 + int(elapsed * 5))
+            text = f"▸ Understanding request... ({pct}%)"
+
+        if not text:
+            return None
+
+        # Monotonic: a snapshot must never regress between polls.
+        last = entry.get("last_pct", 0)
+        if pct < last:
+            pct = last
+            text = _replace_progress_pct(text, pct)
+        entry["last_pct"] = pct
+
+        return Message(
+            message_id=uuid.uuid4().hex,
+            role=Role.agent,
+            parts=[Part(root=TextPart(text=text))],
+        )
+
+
 class _MapsKeyEventConverter(A2uiEventConverter):
     """Post-processes A2A events to keep A2UI parts well-formed and enrichment with progress."""
 
-    def __init__(self):
+    def __init__(self, native_progress: NativeProgressTracker | None = None):
         super().__init__()
         self._progress: dict[str, dict[str, Any]] = {}
         self._seen_text_signatures: dict[str, set[str]] = {}
+        self._native_progress = native_progress
 
     def _advance_steps(self, event, steps: list[dict[str, Any]]) -> str | None:
         """Update ``steps`` in place from one ADK event."""
@@ -1144,22 +1425,28 @@ class _MapsKeyEventConverter(A2uiEventConverter):
                     ),
                 )
         elif not opt_in:
+            # Share the live step list with the poll-driven get_task handler so
+            # it can compute the current GE Thinking-tab stage at read time.
+            if self._native_progress is not None:
+                self._native_progress.attach_steps(task_id, steps)
+
             all_done = bool(steps) and all(
                 s["state"] in ("done", "failed") for s in steps
             )
 
             native_updates: list[tuple[str | None, int]] = []
-            if is_final and not all_done and steps:
+            if is_final and failed:
+                native_updates.append(_get_single_line_progress(steps, failed=True))
+            elif is_final and not all_done and steps:
                 # Preserve the last in-flight transition before the final
                 # completion event. ADK can coalesce a tool response and final
                 # text into the same event; without this, GE jumps from the
                 # previous status directly to 100%.
                 native_updates.append(_get_single_line_progress(steps, failed=failed))
-            native_updates.append(
-                _get_single_line_progress(
-                    steps, done=all_done or is_final, failed=failed
+            elif not is_final:
+                native_updates.append(
+                    _get_single_line_progress(steps, done=all_done, failed=failed)
                 )
-            )
 
             insert_at = 0
             force_separate_progress_events = len(native_updates) > 1
@@ -1215,8 +1502,8 @@ class _MapsKeyEventConverter(A2uiEventConverter):
                         )
                         insert_at += 1
 
-        if is_final:
-            self._progress.pop(inv_id, None)
+        # Final progress state is cleaned up by the executor after GE/native
+        # polling replay has had a chance to expose task.status.message.
 
     def native_progress_heartbeat(
         self,
@@ -1315,7 +1602,13 @@ class RestaurantFinderExecutor(A2aAgentExecutor):
         self._base_url = base_url
         self._agent = agent
 
-        config = A2aAgentExecutorConfig(event_converter=_MapsKeyEventConverter())
+        # Shared with ProgressAwareRequestHandler so the poll-driven tasks/get
+        # endpoint can render the current GE Thinking-tab stage at read time.
+        self.native_progress = NativeProgressTracker()
+
+        config = A2aAgentExecutorConfig(
+            event_converter=_MapsKeyEventConverter(self.native_progress)
+        )
         # `use_legacy=True` forces ADK's legacy execute() path, which calls
         # the overridden `_prepare_session` below. The newer ADK impl
         # (`_A2aAgentExecutor` in `a2a_agent_executor_impl.py`) is opted
@@ -1418,9 +1711,11 @@ class RestaurantFinderExecutor(A2aAgentExecutor):
             )
         )
 
+        native_progress = not session.state.get(PROGRESS_OPT_IN_KEY)
         stop_heartbeat = asyncio.Event()
         heartbeat_task: asyncio.Task | None = None
-        if not session.state.get(PROGRESS_OPT_IN_KEY):
+        if native_progress:
+            self.native_progress.start(context.task_id)
             heartbeat_task = asyncio.create_task(
                 self._native_progress_heartbeat_loop(
                     event_queue=event_queue,
@@ -1451,6 +1746,10 @@ class RestaurantFinderExecutor(A2aAgentExecutor):
                         for e in a2a_events:
                             task_result_aggregator.process_event(e)
                             await event_queue.enqueue_event(e)
+        except BaseException:
+            if native_progress:
+                self.native_progress.finish(context.task_id, failed=True)
+            raise
         finally:
             stop_heartbeat.set()
             if heartbeat_task is not None:
@@ -1460,8 +1759,18 @@ class RestaurantFinderExecutor(A2aAgentExecutor):
                 except asyncio.CancelledError:
                     pass
 
-        if not session.state.get(PROGRESS_OPT_IN_KEY):
-            await asyncio.sleep(NATIVE_PROGRESS_FINAL_HOLD_SECS)
+        if native_progress:
+            # Work is done; keep the task in ``working`` briefly so GE polling
+            # can append the staged Thinking snapshots before artifacts replace
+            # the Thinking tab.
+            self.native_progress.finalize(context.task_id)
+            replay_deadline = time.monotonic() + NATIVE_PROGRESS_FINAL_HOLD_SECS
+            while (
+                time.monotonic() < replay_deadline
+                and not self.native_progress.final_replay_complete(context.task_id)
+            ):
+                await asyncio.sleep(NATIVE_PROGRESS_REPLAY_CHECK_SECS)
+            self.native_progress.finish(context.task_id)
 
         if (
             task_result_aggregator.task_state == TaskState.working
@@ -1579,3 +1888,65 @@ class RestaurantFinderExecutor(A2aAgentExecutor):
             )
 
         return session
+
+
+class ProgressAwareRequestHandler(DefaultRequestHandler):
+    """Request handler that renders live progress for GE's poll-driven Thinking tab.
+
+    Gemini Enterprise polls ``tasks/get`` and displays ``task.status.message``
+    while the task is not ``completed``. Because our agent often finishes within
+    one poll interval, the stored ``status.message`` collapses to its final
+    value, so GE only ever sees ``100%``. This handler overrides ``on_get_task``
+    to compute the *current* stage from :class:`NativeProgressTracker` at read
+    time, so every poll returns an accurate, time-advanced progress line.
+    """
+
+    def __init__(
+        self,
+        *args: Any,
+        native_progress: NativeProgressTracker,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._native_progress = native_progress
+
+    @override
+    async def on_message_send(
+        self,
+        params: MessageSendParams,
+        context: ServerCallContext | None = None,
+    ) -> Message | Task:
+        metadata = params.message.metadata or {}
+        if not metadata.get("a2uiProgress"):
+            config = params.configuration
+            if config is None:
+                config = MessageSendConfiguration(blocking=False, history_length=100)
+            else:
+                config = config.model_copy(
+                    update={
+                        "blocking": False,
+                        "history_length": config.history_length or 100,
+                    }
+                )
+            params = params.model_copy(update={"configuration": config})
+
+        return await super().on_message_send(params, context)
+
+    @override
+    async def on_get_task(
+        self,
+        params: TaskQueryParams,
+        context: ServerCallContext | None = None,
+    ) -> Task | None:
+        task = await super().on_get_task(params, context)
+        if task is None or task.status.state != TaskState.working:
+            return task
+
+        message = self._native_progress.status_message(task.id)
+        if message is None:
+            return task
+
+        # Return a copy so the stored task is never mutated. ``apply_history_length``
+        # returns the stored object verbatim when no historyLength is requested.
+        new_status = task.status.model_copy(update={"message": message})
+        return task.model_copy(update={"status": new_status})
