@@ -111,6 +111,7 @@ Use this checklist when applying the same pattern in another A2A/ADK repo:
 ## Architecture
 
 ```mermaid
+%%{init: {'themeVariables': {'fontSize': '20px'}}}%%
 flowchart TD
     User(["👤 User query"]) --> Exec["RestaurantFinderExecutor (ADK, A2A)"]
 
@@ -255,6 +256,52 @@ The client (`frontend/src/client.ts`) detects these with `#isStagePart()`,
 replays unseen ones, and calls `onStage(text, progressSteps)`; everything else
 stays answer text. The Lit app (`frontend/src/app.ts`) renders the rich panel
 and animates the bars locally (see [Frontend rendering](#frontend-rendering)).
+
+### High-level flow (custom Lit path)
+
+The Lit client opts in (`metadata.a2uiProgress: true`) and polls `tasks/get`.
+The backend tags each working‑status snapshot with progress **metadata**; the
+client replays unseen stage parts and the Lit app animates the bars locally
+between polls — so the panel stays smooth even when backend events are sparse.
+Unlike the GE path, the stage list is carried as structured metadata, not
+computed at read time.
+
+```mermaid
+%%{init: {'themeVariables': {'fontSize': '20px'}, 'sequence': {'actorFontSize': 20, 'noteFontSize': 18, 'messageFontSize': 18}}}%%
+sequenceDiagram
+    participant U as Lit app (app.ts)
+    participant C as Lit client (client.ts)
+    participant X as RestaurantFinderExecutor
+    participant Cv as _MapsKeyEventConverter
+    participant A as ADK Agent + tools
+
+    U->>C: send query
+    C->>X: message/send {metadata.a2uiProgress: true}
+    Note over X: _prepare_session stores<br/>PROGRESS_OPT_IN_KEY = true
+    X->>A: run agent
+
+    loop every poll, while working
+        C->>X: tasks/get
+        A-->>Cv: ADK events (function_call / response)
+        Cv->>Cv: _advance_steps() updates step list
+        Cv->>X: _enrich_with_progress appends tagged TextPart<br/>(a2uiProgressStage + a2uiProgressSteps)
+        X-->>C: task {working, status.message parts}
+        C->>C: #isStagePart() → replay unseen
+        C-->>U: onStage(text, progressSteps)
+        Note over U: updateProgressFromMetadata()<br/>animate bars locally
+    end
+
+    A-->>X: answer ready (A2UI artifacts)
+    C->>X: tasks/get
+    X-->>C: task {completed, artifacts}
+    C-->>U: render A2UI answer, panel holds then clears
+```
+
+Contrast with the GE native path
+([`ge-ui-thinking-panel.md`](./ge-ui-thinking-panel.md)): there the stage is
+**plain text computed at read time** by `NativeProgressTracker`; here it is
+**structured metadata** emitted with each working snapshot and animated by the
+frontend.
 
 ## Gemini Enterprise path — poll‑driven (read‑time) progress
 
